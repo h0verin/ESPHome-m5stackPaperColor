@@ -94,7 +94,8 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  use_address: 192.168.3.73
+  # use_address: 192.168.3.x  # Uncomment and set to your device's reserved/static IP
+                               # Improves OTA reliability by bypassing mDNS resolution
   ap:
     ssid: "PaperColor Fallback"
     password: !secret papercolor_ap_password
