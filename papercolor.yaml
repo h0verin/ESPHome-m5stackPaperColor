@@ -1,0 +1,420 @@
+esphome:
+  name: papercolor
+  friendly_name: M5Stack PaperColor
+  on_boot:
+    - priority: 800.0
+      then:
+        - lambda: |-
+            delay(200);
+            auto *bus = id(i2c_bus);
+            const uint8_t addr = 0x6E;
+
+            ESP_LOGI("M5PM1", "Starting M5PM1 init...");
+
+            uint8_t reg = 0x00, chip_id = 0;
+            auto write_err = bus->write(addr, &reg, 1, false);
+            auto read_err = bus->read(addr, &chip_id, 1);
+
+            ESP_LOGI("M5PM1", "Write err: %d, Read err: %d, Chip ID: 0x%02X", (int)write_err, (int)read_err, chip_id);
+
+            if (chip_id != 0x50) {
+              ESP_LOGE("M5PM1", "Unexpected chip ID: 0x%02X (expected 0x50)", chip_id);
+              return;
+            }
+
+            { uint8_t d[2] = {0x0A, 0x00}; bus->write(addr, d, 2); }
+
+            { uint8_t r = 0x16, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
+              uint8_t d[2] = {r, uint8_t(v & ~(1<<0))}; bus->write(addr, d, 2); }
+
+            { uint8_t r = 0x10, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
+              uint8_t d[2] = {r, uint8_t(v | (1<<0))}; bus->write(addr, d, 2); }
+
+            { uint8_t r = 0x13, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
+              uint8_t d[2] = {r, uint8_t(v & ~(1<<0))}; bus->write(addr, d, 2); }
+
+            { uint8_t r = 0x11, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
+              uint8_t d[2] = {r, uint8_t(v | (1<<0))}; bus->write(addr, d, 2); }
+
+            // Enable charge + boost converter (needed for e-paper high voltage rails)
+            { uint8_t r = 0x06, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
+              uint8_t d[2] = {r, uint8_t(v | (1<<0) | (1<<3))}; bus->write(addr, d, 2); }
+            ESP_LOGI("M5PM1", "Charge + Boost enabled");
+
+            delay(500);
+            ESP_LOGI("M5PM1", "EPD power rail enabled");
+    - priority: -100
+      then:
+        - light.turn_on:
+            id: leds
+            red: 0%
+            green: 100%
+            blue: 0%
+            brightness: 30%
+        - delay: 1s
+        - light.turn_off:
+            id: leds
+    - priority: -200
+      then:
+        - delay: 15s     # wait for SHT40 first reading and WiFi to stabilise
+        - wait_until:
+            condition:
+              and:
+                - lambda: 'return id(ha_outdoor_temp).has_state();'
+                - lambda: 'return !isnan(id(local_temp).state);'
+            timeout: 30s  # give up and refresh with whatever we have after 30s
+        - component.update: reset_reason
+        - component.update: build_date_sensor
+        - component.update: battery_mv
+        - component.update: battery_pct
+        - component.update: wifi_signal_db
+        - component.update: m5_color_screen
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: arduino
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+
+api:
+  encryption:
+    key: !secret papercolor_api_key
+
+ota:
+  - platform: esphome
+    password: !secret papercolor_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  use_address: 192.168.3.73
+  ap:
+    ssid: "PaperColor Fallback"
+    password: !secret papercolor_ap_password
+
+captive_portal:
+
+# ── Time ──────────────────────────────────────────────────────────────────────
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    timezone: "America/Los_Angeles"
+
+# ── I2C ───────────────────────────────────────────────────────────────────────
+# SDA=GPIO3, SCL=GPIO2 confirmed from M5GFX source and factory firmware hal.h
+# GPIO3 is a strapping pin — warning is expected and safe to ignore on this hardware
+
+i2c:
+  sda: GPIO3
+  scl: GPIO2
+  frequency: 100000
+  scan: true
+  id: i2c_bus
+
+# ── SPI (e-paper display) ─────────────────────────────────────────────────────
+
+spi:
+  clk_pin: GPIO15
+  mosi_pin: GPIO13
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+
+color:
+  - id: color_black
+    red: 0%
+    green: 0%
+    blue: 0%
+  - id: color_white
+    red: 100%
+    green: 100%
+    blue: 100%
+  - id: color_red
+    red: 100%
+    green: 0%
+    blue: 0%
+  - id: color_blue
+    red: 0%
+    green: 0%
+    blue: 100%
+  - id: color_green
+    red: 0%
+    green: 100%
+    blue: 0%
+  - id: color_yellow
+    red: 100%
+    green: 100%
+    blue: 0%
+  - id: color_orange
+    red: 100%
+    green: 45%
+    blue: 0%
+
+# ── Fonts ─────────────────────────────────────────────────────────────────────
+
+font:
+  - file: "gfonts://Ubuntu"
+    id: font_large
+    size: 32
+  - file: "gfonts://Ubuntu"
+    id: font_main
+    size: 24
+  - file: "gfonts://Ubuntu"
+    id: font_small
+    size: 18
+
+# ── Sensors ───────────────────────────────────────────────────────────────────
+
+sensor:
+  - platform: sht4x
+    temperature:
+      name: "Room Temperature"
+      id: local_temp
+    humidity:
+      name: "Room Humidity"
+      id: local_humidity
+    address: 0x44
+    update_interval: 15s
+
+  - platform: template
+    name: "Battery Voltage"
+    id: battery_mv
+    unit_of_measurement: "mV"
+    accuracy_decimals: 0
+    device_class: voltage
+    state_class: measurement
+    entity_category: diagnostic
+    update_interval: never
+    lambda: |-
+      // Read VBAT from M5PM1 register 0x22 (16-bit little-endian, value in mV)
+      auto *bus = id(i2c_bus);
+      const uint8_t addr = 0x6E;
+      uint8_t reg = 0x22;
+      uint8_t data[2] = {0, 0};
+      bus->write(addr, &reg, 1, false);
+      bus->read(addr, data, 2);
+      uint16_t mv = data[0] | (data[1] << 8);
+      return (float)mv;
+
+  - platform: template
+    name: "Battery"
+    id: battery_pct
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    device_class: battery
+    state_class: measurement
+    update_interval: never
+    lambda: |-
+      // 4200mV = 100%, 3000mV = 0%
+      float mv = id(battery_mv).state;
+      if (isnan(mv) || mv <= 0) return {};
+      float pct = (mv - 3000.0f) / (4200.0f - 3000.0f) * 100.0f;
+      if (pct < 0) pct = 0;
+      if (pct > 100) pct = 100;
+      return pct;
+
+  - platform: homeassistant
+    id: ha_outdoor_temp
+    entity_id: sensor.st_00105004_temperature
+
+  - platform: wifi_signal
+    name: "WiFi Signal dB"
+    id: wifi_signal_db
+    update_interval: 600s
+    entity_category: diagnostic
+
+  - platform: copy
+    source_id: wifi_signal_db
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: diagnostic
+    device_class: ""
+
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+    entity_category: diagnostic
+
+# ── Buttons ───────────────────────────────────────────────────────────────────
+# Physical order left to right: A=GPIO10, B=GPIO9, C=GPIO1
+# Button A: manual display refresh (useful for a second refresh within the wake window)
+# Button B: wake pin — wakes device from deep sleep, triggers auto refresh + 90s OTA window
+# Button C: available for future use
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO10
+      inverted: true
+      mode: INPUT_PULLUP
+    name: "Button A"
+    id: btn_a
+    filters:
+      - delayed_on: 10ms
+    on_press:
+      then:
+        - logger.log: "Button A pressed — refreshing display"
+        - component.update: m5_color_screen
+
+
+  - platform: gpio
+    pin:
+      number: GPIO1
+      inverted: true
+      mode: INPUT_PULLUP
+    name: "Button C"
+    id: btn_c
+    filters:
+      - delayed_on: 10ms
+    on_press:
+      then:
+        - logger.log: "Button C pressed"
+
+# ── RGB LEDs ──────────────────────────────────────────────────────────────────
+
+light:
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    pin: GPIO21
+    num_leds: 2
+    chipset: WS2812
+    name: "LEDs"
+    id: leds
+    default_transition_length: 0s
+
+# ── IR Transmitter ────────────────────────────────────────────────────────────
+# Disabled: conflicts with LED strip for RMT channels. Re-enable if IR needed
+# and LED strip is removed or a different LED driver is used.
+# remote_transmitter:
+#   pin: GPIO48
+#   carrier_duty_percent: 50%
+#   non_blocking: true
+
+# ── E-Paper Display ───────────────────────────────────────────────────────────
+# Panel: EL040EF1 / ED2208-DOA — E Ink Spectra 6 (7-color), 400×600, 4"
+# Rotation 270° = landscape. Dimensions reported as 600×400 by driver.
+# BUSY pin must be inverted: true — confirmed from Seeed reTerminal reference
+# design (also Spectra-E6) and required for this panel's BUSY polarity.
+
+display:
+  - platform: epaper_spi
+    id: m5_color_screen
+    model: Spectra-E6
+    cs_pin: GPIO44
+    dc_pin: GPIO43
+    busy_pin:
+      number: GPIO11
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    reset_pin: GPIO12
+    dimensions:
+      width: 400
+      height: 600
+    rotation: 270°
+    update_interval: never
+    lambda: |-
+      it.fill(id(color_white));
+
+      // ── Header bar ────────────────────────────────────────────────────────
+      it.filled_rectangle(0, 0, 600, 56, id(color_blue));
+      it.print(300, 12, id(font_large), id(color_white), TextAlign::TOP_CENTER, "HOME ASSISTANT");
+
+      // ── Battery (top right of header) ─────────────────────────────────────
+      if (id(battery_pct).has_state()) {
+        it.printf(580, 12, id(font_small), id(color_white), TextAlign::TOP_RIGHT,
+                  "%.0f%%", id(battery_pct).state);
+      }
+
+      // ── Outdoor temperature ───────────────────────────────────────────────
+      it.print(20, 80, id(font_small), id(color_blue), "OUTDOORS");
+      if (id(ha_outdoor_temp).has_state()) {
+        it.printf(20, 104, id(font_large), id(color_black), "%.1f°F", id(ha_outdoor_temp).state);
+      } else {
+        it.print(20, 104, id(font_main), id(color_red), "Connecting...");
+      }
+
+      // ── Room temperature & humidity ───────────────────────────────────────
+      it.print(20, 180, id(font_small), id(color_blue), "ROOM");
+      it.printf(20, 204, id(font_large), id(color_black), "%.1f°F", id(local_temp).state);
+      it.printf(20, 248, id(font_main), id(color_black), "%.0f%% RH", id(local_humidity).state);
+
+      // ── Divider ───────────────────────────────────────────────────────────
+      it.horizontal_line(20, 300, 560, id(color_blue));
+
+      // ── Last update time ──────────────────────────────────────────────────
+      if (id(ha_time).now().is_valid()) {
+        char time_buf[32];
+        id(ha_time).now().strftime(time_buf, sizeof(time_buf), "Updated %I:%M %p");
+        it.print(300, 315, id(font_small), id(color_black), TextAlign::TOP_CENTER, time_buf);
+      }
+
+      // ── WiFi signal bar ───────────────────────────────────────────────────
+      it.print(20, 350, id(font_small), id(color_black), "WiFi");
+      if (id(wifi_signal_db).has_state()) {
+        int bar_w = (int)(min(max(2 * (id(wifi_signal_db).state + 100.0f), 0.0f), 100.0f) * 5.6f);
+        it.filled_rectangle(20, 370, bar_w, 8, id(color_green));
+      }
+      it.rectangle(20, 370, 560, 8, id(color_black));
+
+# ── Diagnostics ───────────────────────────────────────────────────────────────
+
+text_sensor:
+  - platform: template
+    name: "Build DateTime"
+    id: build_date_sensor
+    update_interval: never
+    icon: "mdi:clock-outline"
+    entity_category: diagnostic
+    lambda: 'return {__DATE__ " " __TIME__};'
+
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      entity_category: diagnostic
+    ssid:
+      name: "Connected SSID"
+      entity_category: diagnostic
+
+  - platform: template
+    name: "Last Reset Reason"
+    id: reset_reason
+    entity_category: diagnostic
+    icon: "mdi:restart-alert"
+    update_interval: never
+    lambda: |-
+      switch (esp_reset_reason()) {
+        case ESP_RST_POWERON:   return {"Power On"};
+        case ESP_RST_EXT:       return {"External Pin"};
+        case ESP_RST_SW:        return {"Software"};
+        case ESP_RST_PANIC:     return {"Panic / Exception"};
+        case ESP_RST_INT_WDT:   return {"Interrupt Watchdog"};
+        case ESP_RST_TASK_WDT:  return {"Task Watchdog"};
+        case ESP_RST_WDT:       return {"Watchdog (other)"};
+        case ESP_RST_DEEPSLEEP: return {"Deep Sleep Wake"};
+        case ESP_RST_BROWNOUT:  return {"Brownout"};
+        default:                return {"Unknown"};
+      }
+
+# ── Deep Sleep ────────────────────────────────────────────────────────────────
+# Wake cycle: boot → M5PM1 init → WiFi → sensors → display refresh → sleep
+# Button C (GPIO1) wakes the device for manual refresh or OTA updates.
+# For OTA: press Button C to wake, then flash within the 45s run_duration window.
+
+deep_sleep:
+  id: deep_sleep_ctrl
+  run_duration: 90s
+  sleep_duration: 15min
+  wakeup_pin:
+    number: GPIO9
+    inverted: true
