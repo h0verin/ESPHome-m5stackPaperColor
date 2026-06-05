@@ -2,6 +2,31 @@ esphome:
   name: papercolor
   friendly_name: M5Stack PaperColor
   on_boot:
+    # ── M5PM1 PMIC boot sequence (priority 800) ───────────────────────────────
+    # The M5PM1 is a custom power management IC that controls the EPD power rail.
+    # By default at power-on, the EPD rail is OFF — the display will not respond
+    # to any SPI commands until the rail is enabled.
+    #
+    # This lambda runs at priority 800 (early boot), which is AFTER the I2C bus
+    # is initialized (priority 900) but BEFORE the epaper_spi display component
+    # sets up (priority 500). This ordering is critical — if the display tries to
+    # initialize before the EPD rail is on, it will hang waiting for the BUSY pin.
+    #
+    # The register sequence below is derived from the M5Stack factory firmware HAL:
+    #   https://github.com/m5stack/M5PaperColor-UserDemo/blob/main/main/hal/hal.cpp
+    # and the M5GFX library source. It is equivalent to calling:
+    #   pm1.pinMode(EPD_EN, OUTPUT);    // EPD_EN = M5PM1 GPIO0
+    #   pm1.digitalWrite(EPD_EN, HIGH); // enable EPD power rail
+    #   pm1.setChargeEnable(true);      // PWR_CFG reg 0x06 bit 0
+    #   pm1.setBoostEnable(true);       // PWR_CFG reg 0x06 bit 3 — generates
+    #                                   // high-voltage rails (~15V) needed for
+    #                                   // e-paper pixel switching
+    #
+    # We use ESPHome's native I2C bus API (id(i2c_bus)) rather than Arduino Wire
+    # because the combined arduino/espidf framework does not expose Wire in the
+    # ESPHome lambda scope.
+    #
+    # M5PM1 I2C address: 0x6E. Chip ID register 0x00 must return 0x50.
     - priority: 800.0
       then:
         - lambda: |-
