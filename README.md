@@ -27,8 +27,8 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 ## Features
 
 - **7-color e-paper display** — outdoor temp as large hero value (from HA), room temp/humidity (local SHT40), MDI battery icon, WiFi signal arc, last update time
-- **Deep sleep** — 15-minute sleep cycle, ~5 day estimated battery life
-- **USB-aware** — skips deep sleep when USB connected; refreshes display every 15 minutes while on USB power
+- **Deep sleep** — 15-minute sleep cycle, ~7 day estimated battery life
+- **USB-aware** — skips deep sleep when USB connected; refreshes display every 10 minutes while on USB power
 - **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state. The piecewise calibration curve is a work in progress — bottom-end accuracy (below ~20%) will improve after a full discharge cycle.
 - **Home Assistant integration** — API encrypted, OTA updates, full sensor telemetry
 - **Smart boot refresh** — waits for valid sensor values before first display update; fallback refresh if HA is slow to respond
@@ -55,7 +55,7 @@ The Spectra-E6 panel uses **inverted BUSY pin polarity** (HIGH = ready, LOW = bu
 ### Deep Sleep & OTA
 The device sleeps for 15 minutes between refreshes. To perform OTA updates:
 1. Press **Button B** (GPIO9) to wake the device
-2. The device stays awake for **90 seconds** — initiate OTA flash within this window
+2. The device stays awake for **60 seconds** — initiate OTA flash within this window
 3. The display auto-refreshes on every wake (no need to press Button A separately)
 
 ---
