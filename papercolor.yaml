@@ -611,7 +611,7 @@ display:
 # It's a no-op on battery because the device is asleep between refreshes.
 
 interval:
-  - interval: 15min
+  - interval: 10min
     then:
       - if:
           condition:
@@ -668,7 +668,7 @@ text_sensor:
 
 deep_sleep:
   id: deep_sleep_ctrl
-  run_duration: 90s
+  run_duration: 60s
   sleep_duration: 15min
   wakeup_pin:
     number: GPIO9
