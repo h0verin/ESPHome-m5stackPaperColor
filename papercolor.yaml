@@ -97,18 +97,23 @@ esphome:
             id: leds
     - priority: -200
       then:
-        - delay: 15s     # wait for SHT40 first reading and WiFi to stabilise
+        - delay: 25s     # display hardware init takes ~19s; wait for it to complete
         - wait_until:
             condition:
               and:
                 - lambda: 'return id(ha_outdoor_temp).has_state();'
                 - lambda: 'return !isnan(id(local_temp).state);'
-            timeout: 30s  # give up and refresh with whatever we have after 30s
+            timeout: 60s  # give up and refresh with whatever we have after 60s
         - component.update: reset_reason
         - component.update: build_date_sensor
-        - component.update: usb_connected
         - component.update: battery_mv
         - component.update: wifi_signal_db
+        - if:
+            condition:
+              lambda: 'return id(ha_outdoor_temp).has_state();'
+            then:
+              - lambda: 'id(initial_display_done) = true;'
+              - logger.log: "Sensors ready — marking initial display done before refresh"
         - component.update: m5_color_screen
         - if:
             condition:
@@ -116,6 +121,18 @@ esphome:
             then:
               - logger.log: "USB connected — skipping deep sleep"
               - deep_sleep.prevent: deep_sleep_ctrl
+
+# ── Globals ───────────────────────────────────────────────────────────────────
+
+globals:
+  - id: usb_was_connected
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: initial_display_done
+    type: bool
+    restore_value: false
+    initial_value: 'false'
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -217,6 +234,41 @@ font:
   - file: "gfonts://Ubuntu"
     id: font_small
     size: 18
+  - file: "gfonts://Ubuntu"
+    id: font_outdoor
+    size: 144
+
+  # MDI icon font — battery icons for header display
+  - file: "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf"
+    id: icon_font
+    size: 26
+    glyphs:
+      - "\U000F0079"  # battery (100%)
+      - "\U000F0082"  # battery-90
+      - "\U000F0081"  # battery-80
+      - "\U000F0080"  # battery-70
+      - "\U000F007F"  # battery-60
+      - "\U000F007E"  # battery-50
+      - "\U000F007D"  # battery-40
+      - "\U000F007C"  # battery-30
+      - "\U000F007B"  # battery-20
+      - "\U000F007A"  # battery-10
+      - "\U000F008E"  # battery-outline (0%)
+      - "\U000F0085"  # battery-charging-100
+      - "\U000F008B"  # battery-charging-90
+      - "\U000F008A"  # battery-charging-80
+      - "\U000F089E"  # battery-charging-70
+      - "\U000F0089"  # battery-charging-60
+      - "\U000F089D"  # battery-charging-50
+      - "\U000F0088"  # battery-charging-40
+      - "\U000F0087"  # battery-charging-30
+      - "\U000F0086"  # battery-charging-20
+      - "\U000F089C"  # battery-charging-10
+      - "\U000F092F"  # wifi-strength-outline (no signal)
+      - "\U000F091F"  # wifi-strength-1
+      - "\U000F0922"  # wifi-strength-2
+      - "\U000F0925"  # wifi-strength-3
+      - "\U000F0928"  # wifi-strength-4
 
 # ── Sensors ───────────────────────────────────────────────────────────────────
 
@@ -268,7 +320,7 @@ sensor:
     unit_of_measurement: ""
     accuracy_decimals: 0
     entity_category: diagnostic
-    update_interval: never
+    update_interval: 10s
     lambda: |-
       // Read VIN from M5PM1 register 0x24 (16-bit little-endian, value in mV)
       // VIN > 4000mV indicates USB power is present
@@ -280,6 +332,23 @@ sensor:
       bus->read(addr, data, 2);
       uint16_t vin = data[0] | (data[1] << 8);
       return (float)(vin > 4000 ? 1 : 0);
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return (x == 1.0f) != id(usb_was_connected);'
+            then:
+              - lambda: 'id(usb_was_connected) = (x == 1.0f);'
+              - lambda: |-
+                  if (x == 1.0f) ESP_LOGI("USB", "USB connected — refreshing display");
+                  else           ESP_LOGI("USB", "USB disconnected — refreshing display");
+              - if:
+                  condition:
+                    lambda: 'return id(initial_display_done);'
+                  then:
+                    - component.update: battery_mv
+                    - component.update: wifi_signal_db
+                    - component.update: m5_color_screen
 
   - platform: copy
     source_id: battery_mv
@@ -310,6 +379,18 @@ sensor:
   - platform: homeassistant
     id: ha_outdoor_temp
     entity_id: sensor.st_00105004_temperature
+    on_value:
+      then:
+        - if:
+            condition:
+              # Only trigger if display init is done (>25s) and initial render didn't have data
+              lambda: 'return !id(initial_display_done) && millis() > 25000;'
+            then:
+              - lambda: 'id(initial_display_done) = true;'
+              - logger.log: "Outdoor temp arrived after timeout — refreshing display"
+              - component.update: battery_mv
+              - component.update: wifi_signal_db
+              - component.update: m5_color_screen
 
   - platform: wifi_signal
     name: "WiFi Signal dB"
@@ -350,6 +431,9 @@ binary_sensor:
     on_press:
       then:
         - logger.log: "Button A pressed — refreshing display"
+        - component.update: usb_connected
+        - component.update: battery_mv
+        - component.update: wifi_signal_db
         - component.update: m5_color_screen
 
 
@@ -417,42 +501,131 @@ display:
       it.filled_rectangle(0, 0, 600, 56, id(color_blue));
       it.print(300, 12, id(font_large), id(color_white), TextAlign::TOP_CENTER, "HOME ASSISTANT");
 
-      // ── Battery (top right of header) ─────────────────────────────────────
-      if (id(battery_pct).has_state()) {
-        it.printf(580, 12, id(font_small), id(color_white), TextAlign::TOP_RIGHT,
-                  "%.0f%%", id(battery_pct).state);
+      // ── WiFi arc icon (top left of header, white) ────────────────────────
+      // Pie-slice style, cx=60 cy=30 — mirrors battery indent from right edge.
+      // Arcs fan upward and fit within the 56px blue header.
+      {
+        float _wsig = id(wifi_signal_db).state;
+        bool _wifi_ok = !isnan(_wsig);
+        int _wlevel = 0;
+        if (_wifi_ok) {
+          if      (_wsig >= -45) _wlevel = 3;
+          else if (_wsig >= -60) _wlevel = 2;
+          else if (_wsig >= -75) _wlevel = 1;
+        }
+        const int cx = 38, cy = 37;
+        Color _wc1 = (_wlevel >= 1) ? id(color_white) : id(color_blue);
+        Color _wc2 = (_wlevel >= 2) ? id(color_white) : id(color_blue);
+        Color _wc3 = (_wlevel >= 3) ? id(color_white) : id(color_blue);
+        // Base dot
+        it.filled_circle(cx, cy, 3, id(color_white));
+        // Ring 1
+        it.line(cx+4, cy-4, cx+2, cy-6, _wc1); it.line(cx+2, cy-6, cx, cy-7, _wc1);
+        it.line(cx, cy-7, cx-2, cy-6, _wc1); it.line(cx-2, cy-6, cx-4, cy-4, _wc1);
+        it.line(cx+5, cy-4, cx+2, cy-7, _wc1); it.line(cx+2, cy-7, cx, cy-8, _wc1);
+        it.line(cx, cy-8, cx-2, cy-7, _wc1); it.line(cx-2, cy-7, cx-5, cy-4, _wc1);
+        // Ring 2
+        it.line(cx+7, cy-6, cx+4, cy-9, _wc2); it.line(cx+4, cy-9, cx, cy-11, _wc2);
+        it.line(cx, cy-11, cx-4, cy-9, _wc2); it.line(cx-4, cy-9, cx-7, cy-6, _wc2);
+        it.line(cx+8, cy-5, cx+4, cy-10, _wc2); it.line(cx+4, cy-10, cx, cy-12, _wc2);
+        it.line(cx, cy-12, cx-4, cy-10, _wc2); it.line(cx-4, cy-10, cx-8, cy-5, _wc2);
+        // Ring 3
+        it.line(cx+11, cy-7, cx+6, cy-13, _wc3); it.line(cx+6, cy-13, cx, cy-16, _wc3);
+        it.line(cx, cy-16, cx-6, cy-13, _wc3); it.line(cx-6, cy-13, cx-11, cy-7, _wc3);
+        it.line(cx+11, cy-6, cx+6, cy-14, _wc3); it.line(cx+6, cy-14, cx, cy-17, _wc3);
+        it.line(cx, cy-17, cx-6, cy-14, _wc3); it.line(cx-6, cy-14, cx-11, cy-6, _wc3);
+        // No-WiFi slash
+        if (!_wifi_ok || _wlevel == 0) {
+          it.line(cx-8, cy-16, cx+8, cy, id(color_blue));
+          it.line(cx-6, cy-16, cx+10, cy, id(color_blue));
+          it.line(cx-7, cy-16, cx+7, cy-1, id(color_red));
+          it.line(cx-6, cy-16, cx+8, cy-1, id(color_red));
+          it.line(cx-5, cy-16, cx+9, cy-1, id(color_red));
+        }
       }
 
-      // ── Outdoor temperature ───────────────────────────────────────────────
-      it.print(20, 80, id(font_small), id(color_blue), "OUTDOORS");
+      // ── Battery (top right of header, simple) ────────────────────────────
+      if (id(battery_pct).has_state()) {
+        float pct = id(battery_pct).state;
+        bool charging = id(usb_connected).state == 1.0f;
+        Color bat_color = charging ? id(color_white) :
+                          (pct > 50) ? id(color_white) :
+                          (pct > 20) ? id(color_yellow) : id(color_red);
+        const char* bat_icon;
+        if (charging) {
+          if      (pct >= 95) bat_icon = "\U000F0085";
+          else if (pct >= 85) bat_icon = "\U000F008B";
+          else if (pct >= 75) bat_icon = "\U000F008A";
+          else if (pct >= 65) bat_icon = "\U000F089E";
+          else if (pct >= 55) bat_icon = "\U000F0089";
+          else if (pct >= 45) bat_icon = "\U000F089D";
+          else if (pct >= 35) bat_icon = "\U000F0088";
+          else if (pct >= 25) bat_icon = "\U000F0087";
+          else if (pct >= 15) bat_icon = "\U000F0086";
+          else                bat_icon = "\U000F089C";
+        } else {
+          if      (pct >= 95) bat_icon = "\U000F0079";
+          else if (pct >= 85) bat_icon = "\U000F0082";
+          else if (pct >= 75) bat_icon = "\U000F0081";
+          else if (pct >= 65) bat_icon = "\U000F0080";
+          else if (pct >= 55) bat_icon = "\U000F007F";
+          else if (pct >= 45) bat_icon = "\U000F007E";
+          else if (pct >= 35) bat_icon = "\U000F007D";
+          else if (pct >= 25) bat_icon = "\U000F007C";
+          else if (pct >= 15) bat_icon = "\U000F007B";
+          else if (pct >= 5)  bat_icon = "\U000F007A";
+          else                bat_icon = "\U000F008E";
+        }
+        it.print(510, 15, id(icon_font), bat_color, TextAlign::TOP_LEFT, bat_icon);
+        if (charging) {
+          it.print(540, 20, id(font_small), bat_color, TextAlign::TOP_LEFT, "CHG");
+        } else {
+          it.printf(540, 20, id(font_small), bat_color, TextAlign::TOP_LEFT, "%.0f%%", pct);
+        }
+      }
+
+      // ── Outdoor temperature (hero — full width, centered) ────────────────
+      it.print(300, 64, id(font_small), id(color_blue), TextAlign::TOP_CENTER, "OUTDOORS");
       if (id(ha_outdoor_temp).has_state()) {
-        it.printf(20, 104, id(font_large), id(color_black), "%.1f°F", id(ha_outdoor_temp).state);
+        it.printf(300, 82, id(font_outdoor), id(color_black), TextAlign::TOP_CENTER, "%.0f°F", id(ha_outdoor_temp).state);
       } else {
-        it.print(20, 104, id(font_main), id(color_red), "Connecting...");
+        it.print(300, 82, id(font_main), id(color_red), TextAlign::TOP_CENTER, "Connecting...");
       }
 
       // ── Room temperature & humidity ───────────────────────────────────────
-      it.print(20, 180, id(font_small), id(color_blue), "ROOM");
-      it.printf(20, 204, id(font_large), id(color_black), "%.1f°F", id(local_temp).state);
-      it.printf(20, 248, id(font_main), id(color_black), "%.0f%% RH", id(local_humidity).state);
+      it.print(20, 290, id(font_small), id(color_blue), "ROOM");
+      if (!isnan(id(local_temp).state) && !isnan(id(local_humidity).state)) {
+        it.printf(20, 310, id(font_main), id(color_black), "%.1f°F  %.0f%% RH", id(local_temp).state, id(local_humidity).state);
+      } else {
+        it.print(20, 310, id(font_main), id(color_red), "Reading...");
+      }
 
       // ── Divider ───────────────────────────────────────────────────────────
-      it.horizontal_line(20, 300, 560, id(color_blue));
+      it.horizontal_line(20, 348, 560, id(color_blue));
 
       // ── Last update time ──────────────────────────────────────────────────
       if (id(ha_time).now().is_valid()) {
         char time_buf[32];
         id(ha_time).now().strftime(time_buf, sizeof(time_buf), "Updated %I:%M %p");
-        it.print(300, 315, id(font_small), id(color_black), TextAlign::TOP_CENTER, time_buf);
+        it.print(300, 362, id(font_small), id(color_black), TextAlign::TOP_CENTER, time_buf);
       }
 
-      // ── WiFi signal bar ───────────────────────────────────────────────────
-      it.print(20, 350, id(font_small), id(color_black), "WiFi");
-      if (id(wifi_signal_db).has_state()) {
-        int bar_w = (int)(min(max(2 * (id(wifi_signal_db).state + 100.0f), 0.0f), 100.0f) * 5.6f);
-        it.filled_rectangle(20, 370, bar_w, 8, id(color_green));
-      }
-      it.rectangle(20, 370, 560, 8, id(color_black));
+# ── Interval refresh (USB only) ───────────────────────────────────────────────
+# When on USB power, deep sleep is prevented and the wake/sleep cycle stops.
+# This interval fires every 15 minutes to keep the display current.
+# It's a no-op on battery because the device is asleep between refreshes.
+
+interval:
+  - interval: 15min
+    then:
+      - if:
+          condition:
+            lambda: 'return id(usb_connected).state == 1.0f;'
+          then:
+            - logger.log: "Interval refresh — USB connected"
+            - component.update: battery_mv
+            - component.update: wifi_signal_db
+            - component.update: m5_color_screen
 
 # ── Diagnostics ───────────────────────────────────────────────────────────────
 
