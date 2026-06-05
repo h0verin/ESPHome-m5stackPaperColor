@@ -402,10 +402,7 @@ sensor:
     entity_category: diagnostic
     device_class: ""
 
-  - platform: uptime
-    name: "Uptime"
-    update_interval: 60s
-    entity_category: diagnostic
+
 
 # ── Buttons ───────────────────────────────────────────────────────────────────
 # Physical order left to right: A=GPIO10, B=GPIO9, C=GPIO1
@@ -625,6 +622,12 @@ interval:
 # ── Diagnostics ───────────────────────────────────────────────────────────────
 
 text_sensor:
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 60s
+    entity_category: diagnostic
+
   - platform: template
     name: "Build DateTime"
     id: build_date_sensor
