@@ -264,11 +264,6 @@ font:
       - "\U000F0087"  # battery-charging-30
       - "\U000F0086"  # battery-charging-20
       - "\U000F089C"  # battery-charging-10
-      - "\U000F092F"  # wifi-strength-outline (no signal)
-      - "\U000F091F"  # wifi-strength-1
-      - "\U000F0922"  # wifi-strength-2
-      - "\U000F0925"  # wifi-strength-3
-      - "\U000F0928"  # wifi-strength-4
 
 # ── Sensors ───────────────────────────────────────────────────────────────────
 
