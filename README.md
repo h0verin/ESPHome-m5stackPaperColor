@@ -4,7 +4,7 @@ An ESPHome configuration for the [M5Stack PaperColor](https://docs.m5stack.com/e
 
 Integrates with Home Assistant to display a dashboard with outdoor temperature, room temperature/humidity, battery level, and WiFi signal strength. Designed for battery-powered use with deep sleep.
 
-![M5Stack PaperColor running ESPHome](PaperColorESPHome.jpg)
+![M5Stack PaperColor running ESPHome](PaperColorESPHome2.jpg)
 
 ---
 
@@ -26,11 +26,12 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 
 ## Features
 
-- **7-color e-paper display** — outdoor temp (from HA), room temp/humidity (local SHT40), battery %, WiFi signal bar, last update time
+- **7-color e-paper display** — outdoor temp as large hero value (from HA), room temp/humidity (local SHT40), MDI battery icon, WiFi signal arc, last update time
 - **Deep sleep** — 15-minute sleep cycle, ~5 day estimated battery life
-- **Battery monitoring** — voltage and percentage read from M5PM1 PMIC via I2C
+- **USB-aware** — skips deep sleep when USB connected; refreshes display every 15 minutes while on USB power
+- **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state
 - **Home Assistant integration** — API encrypted, OTA updates, full sensor telemetry
-- **Smart boot refresh** — waits for valid sensor values before updating display
+- **Smart boot refresh** — waits for valid sensor values before first display update; fallback refresh if HA is slow to respond
 - **3 physical buttons** — A (manual refresh), B (wake from sleep / OTA), C (spare)
 - **2× RGB LEDs** — green flash on boot confirmation
 
@@ -61,7 +62,7 @@ The device sleeps for 15 minutes between refreshes. To perform OTA updates:
 
 ## ESPHome Requirements
 
-- ESPHome **2026.5.2** or later (the `epaper_spi` component with `Spectra-E6` model was added in ESPHome 2026.x)
+- ESPHome **2026.5.3** or later (the `epaper_spi` component with `Spectra-E6` model was added in ESPHome 2026.x)
 - Home Assistant with ESPHome integration
 
 ---
@@ -108,18 +109,18 @@ After first flash, all subsequent updates can be done OTA.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│              HOME ASSISTANT                          91% │  ← blue header, battery %
+│  )))        HOME ASSISTANT               🔋 CHG/91%     │  ← blue header
 ├─────────────────────────────────────────────────────────┤
-│ OUTDOORS                                                 │
-│ 74.6°F                                                   │
+│                    OUTDOORS                              │
+│                                                          │
+│                      75°F          ← large hero value   │
+│                                                          │
+│                                                          │
 │                                                          │
 │ ROOM                                                     │
-│ 25.3°F                                                   │
-│ 46% RH                                                   │
+│ 79.3°F  44% RH                                          │
 │ ─────────────────────────────────────────────────────── │
-│                  Updated 12:20 PM                        │
-│                                                          │
-│ WiFi ████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│                  Updated 11:06 AM                        │
 └─────────────────────────────────────────────────────────┘
 ```
 
