@@ -4,6 +4,8 @@ An ESPHome configuration for the [M5Stack PaperColor](https://docs.m5stack.com/e
 
 Integrates with Home Assistant to display a dashboard with outdoor temperature, room temperature/humidity, battery level, and WiFi signal strength. Designed for battery-powered use with deep sleep.
 
+![M5Stack PaperColor running ESPHome](PaperColorESPHome.jpg)
+
 ---
 
 ## Hardware
