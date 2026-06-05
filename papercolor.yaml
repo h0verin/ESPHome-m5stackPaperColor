@@ -410,7 +410,7 @@ text_sensor:
 # ── Deep Sleep ────────────────────────────────────────────────────────────────
 # Wake cycle: boot → M5PM1 init → WiFi → sensors → display refresh → sleep
 # Button C (GPIO1) wakes the device for manual refresh or OTA updates.
-# For OTA: press Button C to wake, then flash within the 45s run_duration window.
+# For OTA: press Button B to wake, then flash within the 90s run_duration window.
 
 deep_sleep:
   id: deep_sleep_ctrl
