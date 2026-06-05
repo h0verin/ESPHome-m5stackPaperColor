@@ -29,7 +29,7 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 - **7-color e-paper display** — outdoor temp as large hero value (from HA), room temp/humidity (local SHT40), MDI battery icon, WiFi signal arc, last update time
 - **Deep sleep** — 15-minute sleep cycle, ~5 day estimated battery life
 - **USB-aware** — skips deep sleep when USB connected; refreshes display every 15 minutes while on USB power
-- **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state
+- **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state. The piecewise calibration curve is a work in progress — bottom-end accuracy (below ~20%) will improve after a full discharge cycle.
 - **Home Assistant integration** — API encrypted, OTA updates, full sensor telemetry
 - **Smart boot refresh** — waits for valid sensor values before first display update; fallback refresh if HA is slow to respond
 - **3 physical buttons** — A (manual refresh), B (wake from sleep / OTA), C (spare)
