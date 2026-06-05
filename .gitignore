@@ -1,0 +1,9 @@
+# ESPHome secrets — never commit these
+secrets.yaml
+
+# Backup files
+*.bak
+*.backup
+
+# macOS
+.DS_Store
