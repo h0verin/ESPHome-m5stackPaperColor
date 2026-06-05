@@ -49,22 +49,38 @@ esphome:
 
             { uint8_t d[2] = {0x0A, 0x00}; bus->write(addr, d, 2); }
 
+            // GPIO function select — set GPIO0 and GPIO3 to plain GPIO mode (reg 0x16)
             { uint8_t r = 0x16, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
-              uint8_t d[2] = {r, uint8_t(v & ~(1<<0))}; bus->write(addr, d, 2); }
+              uint8_t d[2] = {r, uint8_t(v & ~((1<<0) | (1<<3)))}; bus->write(addr, d, 2); }
 
+            // GPIO direction — set GPIO0 (EPD) and GPIO3 (SD) as outputs (reg 0x10)
             { uint8_t r = 0x10, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
-              uint8_t d[2] = {r, uint8_t(v | (1<<0))}; bus->write(addr, d, 2); }
-
-            { uint8_t r = 0x13, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
-              uint8_t d[2] = {r, uint8_t(v & ~(1<<0))}; bus->write(addr, d, 2); }
-
-            { uint8_t r = 0x11, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
-              uint8_t d[2] = {r, uint8_t(v | (1<<0))}; bus->write(addr, d, 2); }
-
-            // Enable charge + boost converter (needed for e-paper high voltage rails)
-            { uint8_t r = 0x06, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
               uint8_t d[2] = {r, uint8_t(v | (1<<0) | (1<<3))}; bus->write(addr, d, 2); }
-            ESP_LOGI("M5PM1", "Charge + Boost enabled");
+
+            // GPIO push-pull mode — disable open-drain on GPIO0 and GPIO3 (reg 0x13)
+            { uint8_t r = 0x13, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
+              uint8_t d[2] = {r, uint8_t(v & ~((1<<0) | (1<<3)))}; bus->write(addr, d, 2); }
+
+            // GPIO output HIGH — enable EPD (GPIO0) and SD (GPIO3) power rails (reg 0x11)
+            { uint8_t r = 0x11, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
+              uint8_t d[2] = {r, uint8_t(v | (1<<0) | (1<<3))}; bus->write(addr, d, 2); }
+
+            // PWR_CFG (0x06): enable charging (bit0), 5V DCDC (bit1), 3.3V LDO (bit2),
+            // boost converter (bit3) — auto-clear on reset so must be set every boot
+            { uint8_t r = 0x06, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
+              uint8_t d[2] = {r, uint8_t(v | (1<<0) | (1<<1) | (1<<2) | (1<<3))}; bus->write(addr, d, 2); }
+            ESP_LOGI("M5PM1", "Charge + DCDC + LDO + Boost enabled");
+
+            // HOLD_CFG (0x07): maintain EPD (bit0), SD (bit3), and 3.3V (bit5) rails
+            // on USB disconnect — without this the PMIC may reset when USB is unplugged
+            { uint8_t r = 0x07, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
+              uint8_t d[2] = {r, uint8_t(v | (1<<0) | (1<<3) | (1<<5))}; bus->write(addr, d, 2); }
+            ESP_LOGI("M5PM1", "Power hold configured");
+
+            // Button config — disable hardware reset functions on physical buttons
+            // to prevent unintended resets (regs 0x49 and 0x4A)
+            { uint8_t d[2] = {0x49, 0x00}; bus->write(addr, d, 2); }
+            { uint8_t d[2] = {0x4A, 0x00}; bus->write(addr, d, 2); }
 
             delay(500);
             ESP_LOGI("M5PM1", "EPD power rail enabled");
@@ -90,10 +106,17 @@ esphome:
             timeout: 30s  # give up and refresh with whatever we have after 30s
         - component.update: reset_reason
         - component.update: build_date_sensor
+        - component.update: usb_connected
         - component.update: battery_mv
         - component.update: battery_pct
         - component.update: wifi_signal_db
         - component.update: m5_color_screen
+        - if:
+            condition:
+              lambda: 'return id(usb_connected).state == 1.0f;'
+            then:
+              - logger.log: "USB connected — skipping deep sleep"
+              - deep_sleep.prevent: deep_sleep_ctrl
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -220,14 +243,44 @@ sensor:
     update_interval: never
     lambda: |-
       // Read VBAT from M5PM1 register 0x22 (16-bit little-endian, value in mV)
+      // Take 5 readings and return median to reject ADC glitches
       auto *bus = id(i2c_bus);
       const uint8_t addr = 0x6E;
-      uint8_t reg = 0x22;
+      uint16_t readings[5];
+      for (int i = 0; i < 5; i++) {
+        uint8_t reg = 0x22;
+        uint8_t data[2] = {0, 0};
+        bus->write(addr, &reg, 1, false);
+        bus->read(addr, data, 2);
+        readings[i] = data[0] | (data[1] << 8);
+        delay(10);
+      }
+      // Sort and return median (index 2)
+      for (int i = 0; i < 4; i++)
+        for (int j = i+1; j < 5; j++)
+          if (readings[i] > readings[j]) { uint16_t t = readings[i]; readings[i] = readings[j]; readings[j] = t; }
+      uint16_t mv = readings[2];
+      if (mv < 3000) return {};  // reject invalid readings
+      return (float)mv;
+
+  - platform: template
+    name: "USB Connected"
+    id: usb_connected
+    unit_of_measurement: ""
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: never
+    lambda: |-
+      // Read VIN from M5PM1 register 0x24 (16-bit little-endian, value in mV)
+      // VIN > 4000mV indicates USB power is present
+      auto *bus = id(i2c_bus);
+      const uint8_t addr = 0x6E;
+      uint8_t reg = 0x24;
       uint8_t data[2] = {0, 0};
       bus->write(addr, &reg, 1, false);
       bus->read(addr, data, 2);
-      uint16_t mv = data[0] | (data[1] << 8);
-      return (float)mv;
+      uint16_t vin = data[0] | (data[1] << 8);
+      return (float)(vin > 4000 ? 1 : 0);
 
   - platform: template
     name: "Battery"
