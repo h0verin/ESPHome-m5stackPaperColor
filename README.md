@@ -28,13 +28,14 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 
 - **7-color e-paper display** — outdoor temp as large hero value (from HA), room temp °F / humidity (local SHT40), MDI battery icon, WiFi signal arc, last update time
 - **Color-coded header** — header background changes color based on outdoor temperature: blue (≤64°F), green (≤75.5°F), orange (≤85.5°F), red (>85.5°F); toggleable via HA switch (on by default)
-- **Deep sleep** — 15-minute sleep cycle, ~2–3 day estimated battery life
-- **USB-aware** — skips deep sleep when USB connected; refreshes display every 10 minutes while on USB power
+- **Deep sleep** — configurable sleep cycle (default 20 min on battery), ~2–3 day estimated battery life
+- **USB-aware** — skips deep sleep when USB connected; configurable refresh interval while on USB power (default 10 min)
+- **Configurable intervals** — "On Battery Sleep Duration" and "On USB Refresh Interval" sliders (5–120 min, step 5) available in the HA device config; device must be awake for changes to be delivered
 - **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state. The piecewise calibration curve is a work in progress — bottom-end accuracy (below ~20%) will improve after a full discharge cycle.
 - **Home Assistant integration** — API encrypted, OTA updates, full sensor telemetry
 - **Smart boot refresh** — waits for valid sensor values before first display update; fallback refresh if HA is slow to respond
 - **3 physical buttons** — A (manual refresh), B (wake from sleep / OTA), C (spare)
-- **2× RGB LEDs** — brief green flash on boot confirmation; blinking green when woken by Button B on battery power (indicates device is awake and ready for wireless OTA flash); LEDs turn off automatically after display update or when USB is connected
+- **2× RGB LEDs** — brief blue flash on boot confirmation; blinking green when woken by Button B on battery power (indicates device is awake and ready for wireless OTA flash); LEDs turn off automatically after display update or when USB is connected
 
 ---
 
@@ -56,7 +57,7 @@ The Spectra-E6 panel uses **inverted BUSY pin polarity** (HIGH = ready, LOW = bu
 ### Deep Sleep & OTA
 The device sleeps for 15 minutes between refreshes. To perform OTA updates:
 1. Press **Button B** (GPIO9) to wake the device
-2. The **RGB LEDs will blink green** — confirming the device is awake and ready to accept a wireless flash
+2. The **RGB LEDs will blink green** — confirming the device is awake and ready to accept a wireless flash (blue flash = normal timer wake; blinking green = Button B wake)
 3. The device stays awake for **60 seconds** — initiate OTA flash within this window
 4. LEDs turn off automatically once the display has updated (~30s); the device remains flashable for the rest of the 60s window
 5. The display auto-refreshes on every wake (no need to press Button A separately)

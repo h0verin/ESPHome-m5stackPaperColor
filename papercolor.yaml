@@ -98,12 +98,12 @@ esphome:
     - priority: -100
       then:
         - lambda: |-
-            // Brief green boot-confirmation flash — skip if already lit for GPIO wake indicator
+            // Brief blue boot-confirmation flash — skip if already lit for GPIO wake indicator
             esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
             bool gpio_wake = (cause == ESP_SLEEP_WAKEUP_EXT0 || cause == ESP_SLEEP_WAKEUP_EXT1);
             if (!gpio_wake) {
               auto call = id(leds).turn_on();
-              call.set_rgb(0.0f, 1.0f, 0.0f);
+              call.set_rgb(0.0f, 0.0f, 1.0f);
               call.set_brightness(0.3f);
               call.perform();
             }
@@ -137,6 +137,11 @@ esphome:
         - component.update: m5_color_screen
         - script.stop: ota_led_flash
         - light.turn_off: leds
+        - lambda: 'id(last_usb_refresh_ms) = millis();'
+        - lambda: |-
+            uint64_t sleep_ms = (uint64_t)(id(battery_sleep_mins).state * 60.0f) * 1000ULL;
+            id(deep_sleep_ctrl).set_sleep_duration(sleep_ms);
+            ESP_LOGI("sleep", "Battery sleep duration set to %.0f min", id(battery_sleep_mins).state);
         - if:
             condition:
               lambda: 'return id(usb_connected).state == 1.0f;'
@@ -155,6 +160,10 @@ globals:
     type: bool
     restore_value: false
     initial_value: 'false'
+  - id: last_usb_refresh_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -459,6 +468,35 @@ script:
             - delay: 500ms
 
 
+# ── Configurable intervals ────────────────────────────────────────────────────
+number:
+  - platform: template
+    name: "On USB Refresh Interval"
+    id: usb_refresh_mins
+    min_value: 5
+    max_value: 120
+    step: 5
+    initial_value: 10
+    optimistic: true
+    restore_value: true
+    unit_of_measurement: "min"
+    icon: "mdi:refresh"
+    entity_category: config
+
+  - platform: template
+    name: "On Battery Sleep Duration"
+    id: battery_sleep_mins
+    min_value: 5
+    max_value: 120
+    step: 5
+    initial_value: 20
+    optimistic: true
+    restore_value: true
+    unit_of_measurement: "min"
+    icon: "mdi:sleep"
+    entity_category: config
+
+
 # ── Switches ──────────────────────────────────────────────────────────────────
 switch:
   - platform: template
@@ -685,12 +723,15 @@ display:
 # It's a no-op on battery because the device is asleep between refreshes.
 
 interval:
-  - interval: 10min
+  - interval: 1min
     then:
       - if:
           condition:
-            lambda: 'return id(usb_connected).state == 1.0f;'
+            lambda: |-
+              return id(usb_connected).state == 1.0f &&
+                     (millis() - id(last_usb_refresh_ms)) >= (uint32_t)(id(usb_refresh_mins).state * 60000.0f);
           then:
+            - lambda: 'id(last_usb_refresh_ms) = millis();'
             - logger.log: "Interval refresh — USB connected"
             - component.update: battery_mv
             - component.update: wifi_signal_db
@@ -749,7 +790,7 @@ text_sensor:
 deep_sleep:
   id: deep_sleep_ctrl
   run_duration: 60s
-  sleep_duration: 15min
+  sleep_duration: 20min
   wakeup_pin:
     number: GPIO9
     inverted: true
