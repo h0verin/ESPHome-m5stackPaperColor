@@ -272,6 +272,9 @@ sensor:
     temperature:
       name: "Room Temperature"
       id: local_temp
+      unit_of_measurement: "°F"
+      filters:
+        - lambda: return x * 9.0 / 5.0 + 32.0;
     humidity:
       name: "Room Humidity"
       id: local_humidity
