@@ -406,6 +406,16 @@ sensor:
     device_class: ""
 
 
+# ── Switches ──────────────────────────────────────────────────────────────────
+switch:
+  - platform: template
+    name: "Color-coded Header"
+    id: header_color_coded
+    icon: "mdi:palette"
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+    entity_category: config
+
 
 # ── Buttons ───────────────────────────────────────────────────────────────────
 # Physical order left to right: A=GPIO10, B=GPIO9, C=GPIO1
@@ -492,8 +502,18 @@ display:
     lambda: |-
       it.fill(id(color_white));
 
+      // ── Header color — color-coded by outdoor temp if switch enabled ──────
+      Color header_color = id(color_blue);
+      if (id(header_color_coded).state && id(ha_outdoor_temp).has_state()) {
+        float _ot = id(ha_outdoor_temp).state;
+        if      (_ot <= 64.0f)  header_color = id(color_blue);
+        else if (_ot <= 75.5f)  header_color = id(color_green);
+        else if (_ot <= 85.5f)  header_color = id(color_orange);
+        else                    header_color = id(color_red);
+      }
+
       // ── Header bar ────────────────────────────────────────────────────────
-      it.filled_rectangle(0, 0, 600, 56, id(color_blue));
+      it.filled_rectangle(0, 0, 600, 56, header_color);
       it.print(300, 12, id(font_large), id(color_white), TextAlign::TOP_CENTER, "HOME ASSISTANT");
 
       // ── WiFi arc icon (top left of header, white) ────────────────────────
@@ -509,9 +529,9 @@ display:
           else if (_wsig >= -75) _wlevel = 1;
         }
         const int cx = 38, cy = 37;
-        Color _wc1 = (_wlevel >= 1) ? id(color_white) : id(color_blue);
-        Color _wc2 = (_wlevel >= 2) ? id(color_white) : id(color_blue);
-        Color _wc3 = (_wlevel >= 3) ? id(color_white) : id(color_blue);
+        Color _wc1 = (_wlevel >= 1) ? id(color_white) : header_color;
+        Color _wc2 = (_wlevel >= 2) ? id(color_white) : header_color;
+        Color _wc3 = (_wlevel >= 3) ? id(color_white) : header_color;
         // Base dot
         it.filled_circle(cx, cy, 3, id(color_white));
         // Ring 1
@@ -531,8 +551,8 @@ display:
         it.line(cx, cy-17, cx-6, cy-14, _wc3); it.line(cx-6, cy-14, cx-11, cy-6, _wc3);
         // No-WiFi slash
         if (!_wifi_ok || _wlevel == 0) {
-          it.line(cx-8, cy-16, cx+8, cy, id(color_blue));
-          it.line(cx-6, cy-16, cx+10, cy, id(color_blue));
+          it.line(cx-8, cy-16, cx+8, cy, header_color);
+          it.line(cx-6, cy-16, cx+10, cy, header_color);
           it.line(cx-7, cy-16, cx+7, cy-1, id(color_red));
           it.line(cx-6, cy-16, cx+8, cy-1, id(color_red));
           it.line(cx-5, cy-16, cx+9, cy-1, id(color_red));
