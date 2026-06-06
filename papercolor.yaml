@@ -84,17 +84,37 @@ esphome:
 
             delay(500);
             ESP_LOGI("M5PM1", "EPD power rail enabled");
+    - priority: 600
+      then:
+        - lambda: |-
+            // If woken by Button B (GPIO wake) and not on USB power, turn LEDs green
+            // as a visual "ready to flash wirelessly" indicator.
+            esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+            bool gpio_wake = (cause == ESP_SLEEP_WAKEUP_EXT0 || cause == ESP_SLEEP_WAKEUP_EXT1);
+            if (gpio_wake) {
+              ESP_LOGI("boot", "Woke via Button B — starting OTA indicator LED flash");
+              id(ota_led_flash).execute();
+            }
     - priority: -100
       then:
-        - light.turn_on:
-            id: leds
-            red: 0%
-            green: 100%
-            blue: 0%
-            brightness: 30%
-        - delay: 1s
-        - light.turn_off:
-            id: leds
+        - lambda: |-
+            // Brief green boot-confirmation flash — skip if already lit for GPIO wake indicator
+            esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+            bool gpio_wake = (cause == ESP_SLEEP_WAKEUP_EXT0 || cause == ESP_SLEEP_WAKEUP_EXT1);
+            if (!gpio_wake) {
+              auto call = id(leds).turn_on();
+              call.set_rgb(0.0f, 1.0f, 0.0f);
+              call.set_brightness(0.3f);
+              call.perform();
+            }
+        - if:
+            condition:
+              lambda: |-
+                esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+                return cause != ESP_SLEEP_WAKEUP_EXT0 && cause != ESP_SLEEP_WAKEUP_EXT1;
+            then:
+              - delay: 1s
+              - light.turn_off: leds
     - priority: -200
       then:
         - delay: 25s     # display hardware init takes ~19s; wait for it to complete
@@ -115,6 +135,8 @@ esphome:
               - lambda: 'id(initial_display_done) = true;'
               - logger.log: "Sensors ready — marking initial display done before refresh"
         - component.update: m5_color_screen
+        - script.stop: ota_led_flash
+        - light.turn_off: leds
         - if:
             condition:
               lambda: 'return id(usb_connected).state == 1.0f;'
@@ -342,6 +364,12 @@ sensor:
                   else           ESP_LOGI("USB", "USB disconnected — refreshing display");
               - if:
                   condition:
+                    lambda: 'return x == 1.0f;'
+                  then:
+                    - script.stop: ota_led_flash
+                    - light.turn_off: leds
+              - if:
+                  condition:
                     lambda: 'return id(initial_display_done);'
                   then:
                     - component.update: battery_mv
@@ -404,6 +432,26 @@ sensor:
     unit_of_measurement: "Signal %"
     entity_category: diagnostic
     device_class: ""
+
+
+# ── Scripts ───────────────────────────────────────────────────────────────────
+script:
+  - id: ota_led_flash
+    mode: restart
+    then:
+      - while:
+          condition:
+            lambda: 'return true;'
+          then:
+            - light.turn_on:
+                id: leds
+                red: 0%
+                green: 100%
+                blue: 0%
+                brightness: 30%
+            - delay: 500ms
+            - light.turn_off: leds
+            - delay: 500ms
 
 
 # ── Switches ──────────────────────────────────────────────────────────────────

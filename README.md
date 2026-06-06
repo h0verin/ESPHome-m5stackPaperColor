@@ -34,7 +34,7 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 - **Home Assistant integration** — API encrypted, OTA updates, full sensor telemetry
 - **Smart boot refresh** — waits for valid sensor values before first display update; fallback refresh if HA is slow to respond
 - **3 physical buttons** — A (manual refresh), B (wake from sleep / OTA), C (spare)
-- **2× RGB LEDs** — green flash on boot confirmation
+- **2× RGB LEDs** — brief green flash on boot confirmation; blinking green when woken by Button B on battery power (indicates device is awake and ready for wireless OTA flash); LEDs turn off automatically after display update or when USB is connected
 
 ---
 
@@ -56,8 +56,10 @@ The Spectra-E6 panel uses **inverted BUSY pin polarity** (HIGH = ready, LOW = bu
 ### Deep Sleep & OTA
 The device sleeps for 15 minutes between refreshes. To perform OTA updates:
 1. Press **Button B** (GPIO9) to wake the device
-2. The device stays awake for **60 seconds** — initiate OTA flash within this window
-3. The display auto-refreshes on every wake (no need to press Button A separately)
+2. The **RGB LEDs will blink green** — confirming the device is awake and ready to accept a wireless flash
+3. The device stays awake for **60 seconds** — initiate OTA flash within this window
+4. LEDs turn off automatically once the display has updated (~30s); the device remains flashable for the rest of the 60s window
+5. The display auto-refreshes on every wake (no need to press Button A separately)
 
 ---
 
