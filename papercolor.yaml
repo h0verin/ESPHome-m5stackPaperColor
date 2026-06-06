@@ -370,6 +370,11 @@ sensor:
                     - light.turn_off: leds
               - if:
                   condition:
+                    lambda: 'return x == 0.0f;'
+                  then:
+                    - deep_sleep.allow: deep_sleep_ctrl
+              - if:
+                  condition:
                     lambda: 'return id(initial_display_done);'
                   then:
                     - component.update: battery_mv
