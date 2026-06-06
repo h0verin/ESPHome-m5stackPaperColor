@@ -465,6 +465,7 @@ light:
     chipset: WS2812
     name: "LEDs"
     id: leds
+    internal: true
     default_transition_length: 0s
 
 # ── IR Transmitter ────────────────────────────────────────────────────────────
