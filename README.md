@@ -110,7 +110,7 @@ After first flash, all subsequent updates can be done OTA.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  )))        HOME ASSISTANT               🔋 CHG/91%     │  ← blue header
+│  )))        HOME ASSISTANT               🔋 CHG/91%     │
 ├─────────────────────────────────────────────────────────┤
 │                    OUTDOORS                              │
 │                                                          │
