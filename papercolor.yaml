@@ -732,9 +732,7 @@ display:
       if (id(battery_pct).has_state()) {
         float pct = id(battery_pct).state;
         bool charging = id(usb_connected).state;
-        Color bat_color = charging   ? id(color_black) :
-                          (pct > 50) ? id(color_black) :
-                          (pct > 20) ? id(color_yellow) : id(color_red);
+        Color bat_color = (charging || pct > 20) ? id(color_black) : id(color_red);
         const char* bat_icon;
         if (charging) {
           if      (pct >= 95) bat_icon = "\U000F0085";

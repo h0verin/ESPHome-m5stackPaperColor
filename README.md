@@ -28,10 +28,11 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 
 - **E Ink Spectra 6 display** — color-coded header with title; outdoor temp as large centered hero value (from HA); centered room temp °F / humidity (local SHT40); footer with WiFi arc + signal %, last update timestamp, and MDI battery icon + charge % — all on a shared line
 - **Color-coded header** — header background changes color based on outdoor temperature: blue (≤64°F), green (≤75.5°F), yellow (≤85.5°F), red (>85.5°F); header text is black on yellow, white on all other colors; toggleable via HA switch (on by default)
+- **Battery icon** — black when charging or above 20%, red at ≤20%; MDI icon tracks charge level and charging state
 - **Deep sleep** — configurable sleep cycle (default 20 min on battery), ~2–3 day estimated battery life
 - **USB-aware** — skips deep sleep when USB connected; the screen refreshes every 10 minutes by default (configurable via the "On USB Refresh Interval" slider in HA)
 - **Configurable intervals** — "On Battery Sleep Duration" and "On USB Refresh Interval" sliders (5–120 min, step 5) available in the HA device config; device must be awake for changes to be delivered
-- **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state. Calibrated from a full discharge run (charge to PMIC cutoff at ~3000 mV); piecewise curve tuned to the measured LiPo discharge shape including the steep cliff below ~3300 mV.
+- **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state; icon turns red at ≤20%. Calibrated from a full discharge run (charge to PMIC cutoff at ~3000 mV); piecewise curve tuned to the measured LiPo discharge shape including the steep cliff below ~3300 mV.
 - **Home Assistant integration** — API encrypted, OTA updates, full sensor telemetry
 - **Smart boot refresh** — waits for valid sensor values before first display update; fallback refresh if HA is slow to respond
 - **3 physical buttons** — A (manual refresh), B (wake from sleep / OTA), C (spare)
