@@ -130,10 +130,12 @@ esphome:
         - if:
             condition:
               # Low battery path: triggers if voltage is valid and below threshold,
-              # or if the "Simulate Low Battery" switch is on. The switch always resets
-              # to OFF on boot so it cannot cause a boot loop.
+              # or if the "Simulate Low Battery" switch is on.
+              # USB guard: never trigger on USB — deep_sleep.enter bypasses prevent
+              # and would force sleep even while charging, which is incorrect.
               # NaN (no reading) evaluates false — safe fallback to normal path.
               lambda: |-
+                if (id(usb_connected).state) return false;
                 return (id(battery_mv).has_state() && id(battery_mv).state < 3450.0f)
                        || id(simulate_low_battery).state;
             then:
