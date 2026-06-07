@@ -4,7 +4,7 @@ An ESPHome configuration for the [M5Stack PaperColor](https://docs.m5stack.com/e
 
 Integrates with Home Assistant to display a dashboard with outdoor temperature, room temperature/humidity, battery level, and WiFi signal strength. Designed for battery-powered use with deep sleep.
 
-![M5Stack PaperColor running ESPHome](PaperColorESPHome3.jpg)
+![M5Stack PaperColor running ESPHome](PaperColorESPHome4a.jpg)
 
 ---
 
@@ -34,6 +34,9 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 - **Configurable intervals** — "On Battery Sleep Duration" and "On USB Refresh Interval" sliders (5–120 min, step 5) available in the HA device config; device must be awake for changes to be delivered
 - **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state; icon turns red at ≤20%. Calibrated from a full discharge run (charge to PMIC cutoff at ~3000 mV); piecewise curve tuned to the measured LiPo discharge shape including the steep cliff below ~3300 mV.
 - **Low battery screen** — when battery drops below 3450 mV at wake, renders a "BATTERY LOW" warning screen with charge percentage and instructions, then enters indefinite deep sleep (7-day timer, GPIO wake only). Press Button B after charging to resume normal operation.
+
+![M5Stack PaperColor low battery screen](PaperColorESPHome4b.jpg)
+
 - **Home Assistant integration** — API encrypted, OTA updates, full sensor telemetry
 - **Smart boot refresh** — waits for valid sensor values before first display update; fallback refresh if HA is slow to respond
 - **3 physical buttons** — A (manual refresh), B (wake from sleep / OTA), C (spare)
