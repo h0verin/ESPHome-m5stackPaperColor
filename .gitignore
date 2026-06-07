@@ -7,3 +7,6 @@ secrets.yaml
 
 # macOS
 .DS_Store
+
+# Local project context — not for public repo
+CONTEXT.md

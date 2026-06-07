@@ -1,6 +1,6 @@
 # ESPHome — M5Stack PaperColor
 
-An ESPHome configuration for the [M5Stack PaperColor](https://docs.m5stack.com/en/core/PaperColor) (SKU: C151), a 4" E Ink Spectra 6 (7-color) display device based on the ESP32-S3.
+An ESPHome configuration for the [M5Stack PaperColor](https://docs.m5stack.com/en/core/PaperColor) (SKU: C151), a 4" E Ink Spectra 6 display device based on the ESP32-S3.
 
 Integrates with Home Assistant to display a dashboard with outdoor temperature, room temperature/humidity, battery level, and WiFi signal strength. Designed for battery-powered use with deep sleep.
 
@@ -13,7 +13,7 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 | Component | Details |
 |---|---|
 | SoC | ESP32-S3R8 (dual-core, 240MHz) |
-| Display | E Ink Spectra 6 (7-color), 4", 400×600px |
+| Display | E Ink Spectra 6, 4", 400×600px, 6 usable colors |
 | PSRAM | 8MB OPI |
 | Flash | 16MB |
 | Temp/Humidity | SHT40 (I2C 0x44) |
@@ -26,12 +26,12 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 
 ## Features
 
-- **7-color e-paper display** — outdoor temp as large hero value (from HA), room temp °F / humidity (local SHT40), MDI battery icon, WiFi signal arc, last update time
-- **Color-coded header** — header background changes color based on outdoor temperature: blue (≤64°F), green (≤75.5°F), orange (≤85.5°F), red (>85.5°F); toggleable via HA switch (on by default)
+- **E Ink Spectra 6 display** — color-coded header with title; outdoor temp as large centered hero value (from HA); centered room temp °F / humidity (local SHT40); footer with WiFi arc + signal %, last update timestamp, and MDI battery icon + charge % — all on a shared line
+- **Color-coded header** — header background changes color based on outdoor temperature: blue (≤64°F), green (≤75.5°F), yellow (≤85.5°F), red (>85.5°F); header text is black on yellow, white on all other colors; toggleable via HA switch (on by default)
 - **Deep sleep** — configurable sleep cycle (default 20 min on battery), ~2–3 day estimated battery life
 - **USB-aware** — skips deep sleep when USB connected; the screen refreshes every 10 minutes by default (configurable via the "On USB Refresh Interval" slider in HA)
 - **Configurable intervals** — "On Battery Sleep Duration" and "On USB Refresh Interval" sliders (5–120 min, step 5) available in the HA device config; device must be awake for changes to be delivered
-- **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state. The piecewise calibration curve is a work in progress — bottom-end accuracy (below ~20%) will improve after a full discharge cycle.
+- **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state. Calibrated from a full discharge run (charge to PMIC cutoff at ~3000 mV); piecewise curve tuned to the measured LiPo discharge shape including the steep cliff below ~3300 mV.
 - **Home Assistant integration** — API encrypted, OTA updates, full sensor telemetry
 - **Smart boot refresh** — waits for valid sensor values before first display update; fallback refresh if HA is slow to respond
 - **3 physical buttons** — A (manual refresh), B (wake from sleep / OTA), C (spare)
@@ -47,6 +47,14 @@ The EPD power rail is **off by default** and must be enabled at boot before the 
 The sequence also enables the boost converter (`PWR_CFG` register 0x06, bits 0 and 3), which generates the high-voltage rails (~15V+) required for e-paper pixel switching.
 
 Register sequence derived from [M5GFX source](https://github.com/m5stack/M5GFX) and [M5Stack factory firmware HAL](https://github.com/m5stack/M5PaperColor-UserDemo).
+
+### Spectra E6 Color Palette
+Despite being marketed as "7-color," the ESPHome `epaper_spi` Spectra-E6 driver exposes **6 usable colors**: black, white, red, yellow, green, blue. Orange is not available — the driver quantizes any RGB value to the nearest of these six using a simple per-channel threshold (green > 128 → yellow, green ≤ 128 with red dominant → red). Colors that appear orange on screen will map to either red or yellow depending on the green channel value.
+
+### M5PM1 Sleep Power Optimization
+Before entering deep sleep, the config writes PMIC register `0x11` to pull the EPD (GPIO0, bit 0) and SD card (GPIO3, bit 3) rails LOW. Without this, the PMIC boost converter continues driving the ~15V EPD rails during sleep, drawing an estimated ~650µA unnecessarily. The e-paper panel is bistable — it holds its image with the rail off. Both rails are unconditionally re-enabled at the next boot via the priority 800 sequence before the display driver initializes.
+
+The rail disable only happens when going to sleep (battery-powered). On USB, the rails stay on so periodic interval refreshes continue to work. The boot sequence waits up to 20 seconds after triggering a display refresh before disabling the rails, ensuring the full ~15–19s Spectra E6 panel refresh completes first.
 
 ### Display BUSY Pin Polarity
 The Spectra-E6 panel uses **inverted BUSY pin polarity** (HIGH = ready, LOW = busy) — opposite of the ESPHome driver default. The `busy_pin` must be configured with `inverted: true` or the display initialization hangs indefinitely. Confirmed from the Seeed reTerminal E1002 reference design (also Spectra-E6).
@@ -113,18 +121,17 @@ After first flash, all subsequent updates can be done OTA.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  )))        HOME ASSISTANT               🔋 CHG/91%     │
+│                  HOME ASSISTANT                          │
 ├─────────────────────────────────────────────────────────┤
 │                    OUTDOORS                              │
 │                                                          │
 │                      75°F          ← large hero value   │
 │                                                          │
 │                                                          │
-│                                                          │
-│ ROOM                                                     │
-│ 79.3°F  44% RH                                          │
+│                      ROOM                               │
+│                  79.3°F  44% RH                         │
 │ ─────────────────────────────────────────────────────── │
-│                  Updated 11:06 AM                        │
+│ ))) 85%          Updated 11:06 AM            🔋 72%     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -154,7 +161,7 @@ After first flash, all subsequent updates can be done OTA.
 
 - **[Anthropic's Claude Code](https://claude.ai/claude-code)** — this project was developed interactively with Claude Code on real hardware. The PMIC reverse-engineering, display driver research, boot sequencing, and ESPHome integration were all developed and debugged through an AI-assisted session.
 
-- **[PFalko/m5stack-papercolor-esphome](https://github.com/PFalko/m5stack-papercolor-esphome)** — independent ESPHome implementation for the same device. Several M5PM1 PMIC improvements in this config were informed by their reverse-engineering work, specifically: the `HOLD_CFG` power-hold register sequence, enabling the 3.3V LDO rail, disabling hardware button reset functions, and the 5-reading median filter for battery voltage.
+- **[PFalko/m5stack-papercolor-esphome](https://github.com/PFalko/m5stack-papercolor-esphome)** — independent ESPHome implementation for the same device. Several M5PM1 PMIC improvements in this config were informed by their reverse-engineering work, specifically: the `HOLD_CFG` power-hold register sequence, enabling the 3.3V LDO rail, disabling hardware button reset functions, the 5-reading median filter for battery voltage, and pulling the EPD and SD rails LOW via register `0x11` before deep sleep to eliminate unnecessary boost converter draw (~650µA saving).
 
 - **[M5Stack factory firmware](https://github.com/m5stack/M5PaperColor-UserDemo)** — original HAL source used to derive the M5PM1 EPD power rail init sequence.
 
