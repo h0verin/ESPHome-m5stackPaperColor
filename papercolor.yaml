@@ -127,36 +127,23 @@ esphome:
         - component.update: reset_reason
         - component.update: build_date_sensor
         - component.update: battery_mv
-        - component.update: wifi_signal_db
         - if:
             condition:
-              lambda: 'return id(ha_outdoor_temp).has_state();'
+              # Low battery path: triggers if voltage is valid and below threshold.
+              # NaN (no reading) evaluates false — safe fallback to normal path.
+              lambda: 'return id(battery_mv).has_state() && id(battery_mv).state < 3450.0f;'
             then:
-              - lambda: 'id(initial_display_done) = true;'
-              - logger.log: "Sensors ready — marking initial display done before refresh"
-        - component.update: m5_color_screen
-        - script.stop: ota_led_flash
-        - light.turn_off: leds
-        # 20s covers: 150ms WS2812 off-frame settle + up to ~19s Spectra E6 full refresh.
-        # The EPD component.update is asynchronous — the panel refresh runs in the background
-        # and takes 15–19s. We must not cut the EPD power rail until it is complete.
-        - delay: 20s
-        - lambda: 'id(last_usb_refresh_ms) = millis();'
-        - lambda: |-
-            uint64_t sleep_ms = (uint64_t)(id(battery_sleep_mins).state * 60.0f) * 1000ULL;
-            id(deep_sleep_ctrl).set_sleep_duration(sleep_ms);
-            ESP_LOGI("sleep", "Battery sleep duration set to %.0f min", id(battery_sleep_mins).state);
-        - if:
-            condition:
-              lambda: 'return id(usb_connected).state;'
-            then:
-              - logger.log: "USB connected — skipping deep sleep"
-              - deep_sleep.prevent: deep_sleep_ctrl
-            else:
-              # ── M5PM1 EPD/SD rail disable ────────────────────────────────────────
-              # Only disable when going to sleep — on USB the rails must stay on so
-              # the interval refresh can update the display without a reboot.
-              # Rails are re-enabled unconditionally at the next boot (priority 800).
+              # ── Low battery boot path ────────────────────────────────────────────
+              # Render warning screen then enter indefinite deep sleep (GPIO wake only).
+              # EPD rails stay on through the 20s refresh window, then are disabled.
+              - lambda: |-
+                  id(low_battery_triggered) = true;
+                  ESP_LOGW("battery", "Low battery (%.0f mV) — showing warning screen", id(battery_mv).state);
+              - component.update: m5_color_screen
+              - script.stop: ota_led_flash
+              - light.turn_off: leds
+              # Wait for EPD panel refresh to complete before cutting rails
+              - delay: 20s
               - lambda: |-
                   {
                     auto *bus = id(i2c_bus);
@@ -166,8 +153,56 @@ esphome:
                     bus->read(addr, &v, 1);
                     uint8_t d[2] = {r, uint8_t(v & ~((1<<0) | (1<<3)))};
                     bus->write(addr, d, 2);
-                    ESP_LOGI("M5PM1", "EPD + SD rails disabled before sleep");
+                    ESP_LOGI("M5PM1", "EPD + SD rails disabled (low battery)");
                   }
+              # Indefinite sleep — wake via Button B (GPIO9) only, no timer
+              - lambda: |-
+                  id(deep_sleep_ctrl).set_sleep_duration(7ULL * 24ULL * 3600ULL * 1000ULL);
+                  ESP_LOGI("sleep", "Entering indefinite deep sleep (low battery)");
+              - deep_sleep.enter: deep_sleep_ctrl
+            else:
+              # ── Normal boot path ─────────────────────────────────────────────────
+              - component.update: wifi_signal_db
+              - if:
+                  condition:
+                    lambda: 'return id(ha_outdoor_temp).has_state();'
+                  then:
+                    - lambda: 'id(initial_display_done) = true;'
+                    - logger.log: "Sensors ready — marking initial display done before refresh"
+              - component.update: m5_color_screen
+              - script.stop: ota_led_flash
+              - light.turn_off: leds
+              # 20s covers: 150ms WS2812 off-frame settle + up to ~19s Spectra E6 full refresh.
+              # The EPD component.update is asynchronous — the panel refresh runs in the background
+              # and takes 15–19s. We must not cut the EPD power rail until it is complete.
+              - delay: 20s
+              - lambda: 'id(last_usb_refresh_ms) = millis();'
+              - lambda: |-
+                  uint64_t sleep_ms = (uint64_t)(id(battery_sleep_mins).state * 60.0f) * 1000ULL;
+                  id(deep_sleep_ctrl).set_sleep_duration(sleep_ms);
+                  ESP_LOGI("sleep", "Battery sleep duration set to %.0f min", id(battery_sleep_mins).state);
+              - if:
+                  condition:
+                    lambda: 'return id(usb_connected).state;'
+                  then:
+                    - logger.log: "USB connected — skipping deep sleep"
+                    - deep_sleep.prevent: deep_sleep_ctrl
+                  else:
+                    # ── M5PM1 EPD/SD rail disable ──────────────────────────────────
+                    # Only disable when going to sleep — on USB the rails must stay on so
+                    # the interval refresh can update the display without a reboot.
+                    # Rails are re-enabled unconditionally at the next boot (priority 800).
+                    - lambda: |-
+                        {
+                          auto *bus = id(i2c_bus);
+                          const uint8_t addr = 0x6E;
+                          uint8_t r = 0x11, v = 0;
+                          bus->write(addr, &r, 1, false);
+                          bus->read(addr, &v, 1);
+                          uint8_t d[2] = {r, uint8_t(v & ~((1<<0) | (1<<3)))};
+                          bus->write(addr, d, 2);
+                          ESP_LOGI("M5PM1", "EPD + SD rails disabled before sleep");
+                        }
 
 # ── Globals ───────────────────────────────────────────────────────────────────
 
@@ -180,6 +215,10 @@ globals:
     type: uint32_t
     restore_value: false
     initial_value: '0'
+  - id: low_battery_triggered
+    type: bool
+    restore_value: false
+    initial_value: 'false'
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -484,6 +523,7 @@ switch:
     entity_category: config
 
 
+
 # ── Buttons ───────────────────────────────────────────────────────────────────
 # Physical order left to right: A=GPIO10, B=GPIO9, C=GPIO1
 # Button A: manual display refresh (useful for a second refresh within the wake window)
@@ -633,6 +673,23 @@ display:
     update_interval: never
     lambda: |-
       it.fill(id(color_white));
+
+      // ── Low battery screen ────────────────────────────────────────────────
+      // Shown when battery_mv < 3450 mV at boot. Renders then device sleeps
+      // indefinitely — wake via Button B after charging.
+      if (id(low_battery_triggered)) {
+        it.filled_rectangle(0, 0, 600, 56, id(color_red));
+        it.print(300, 12, id(font_large), id(color_white), TextAlign::TOP_CENTER, "BATTERY LOW");
+        it.print(300, 100, id(font_large), id(color_red), TextAlign::TOP_CENTER, "Please charge via USB-C");
+        it.print(300, 180, id(icon_font), id(color_red), TextAlign::TOP_CENTER, "\U000F008E");
+        if (id(battery_pct).has_state()) {
+          it.printf(300, 215, id(font_small), id(color_black), TextAlign::TOP_CENTER, "%.0f%% remaining", id(battery_pct).state);
+        }
+        it.horizontal_line(60, 270, 480, id(color_black));
+        it.print(300, 290, id(font_main), id(color_black), TextAlign::TOP_CENTER, "Device has entered deep sleep.");
+        it.print(300, 325, id(font_small), id(color_black), TextAlign::TOP_CENTER, "Charge via USB-C, then press Button B to wake.");
+        return;
+      }
 
       // ── Header color — color-coded by outdoor temp if switch enabled ──────
       Color header_color = id(color_blue);
