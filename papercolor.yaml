@@ -129,9 +129,13 @@ esphome:
         - component.update: battery_mv
         - if:
             condition:
-              # Low battery path: triggers if voltage is valid and below threshold.
+              # Low battery path: triggers if voltage is valid and below threshold,
+              # or if the "Simulate Low Battery" switch is on. The switch always resets
+              # to OFF on boot so it cannot cause a boot loop.
               # NaN (no reading) evaluates false — safe fallback to normal path.
-              lambda: 'return id(battery_mv).has_state() && id(battery_mv).state < 3450.0f;'
+              lambda: |-
+                return (id(battery_mv).has_state() && id(battery_mv).state < 3450.0f)
+                       || id(simulate_low_battery).state;
             then:
               # ── Low battery boot path ────────────────────────────────────────────
               # Render warning screen then enter indefinite deep sleep (GPIO wake only).
@@ -519,6 +523,17 @@ switch:
     id: header_color_coded
     icon: "mdi:palette"
     restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+    entity_category: config
+
+  # Simulate Low Battery — forces the low battery warning screen on next battery wake cycle.
+  # Resets to OFF on every boot (restore_mode: ALWAYS_OFF) so it is safe to leave enabled;
+  # it cannot get stuck on and cause a boot loop. Useful for testing layout changes.
+  - platform: template
+    name: "Simulate Low Battery"
+    id: simulate_low_battery
+    icon: "mdi:battery-alert"
+    restore_mode: ALWAYS_OFF
     optimistic: true
     entity_category: config
 
