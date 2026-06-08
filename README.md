@@ -159,14 +159,20 @@ After first flash, all subsequent updates can be done OTA.
 | I2C SCL | GPIO2 |
 | SPI CLK | GPIO15 |
 | SPI MOSI | GPIO13 |
+| SPI MISO | GPIO14 |
 | EPD CS | GPIO44 |
 | EPD DC | GPIO43 |
 | EPD BUSY | GPIO11 |
 | EPD RST | GPIO12 |
+| SD Card CS | GPIO47 |
 | Button A | GPIO10 |
 | Button B (wake) | GPIO9 |
 | Button C | GPIO1 |
-| RGB LEDs | GPIO21 |
+| RGB LEDs (data) | GPIO21 |
+| Grove I | GPIO4 |
+| Grove O | GPIO5 |
+| Audio Power Enable | GPIO45 |
+| Speaker Enable | GPIO46 |
 | IR TX | GPIO48 |
 
 ---
