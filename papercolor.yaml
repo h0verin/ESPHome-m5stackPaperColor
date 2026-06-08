@@ -136,7 +136,7 @@ esphome:
               # NaN (no reading) evaluates false — safe fallback to normal path.
               lambda: |-
                 if (id(usb_connected).state) return false;
-                return (id(battery_mv).has_state() && id(battery_mv).state < 3450.0f)
+                return (id(battery_mv).has_state() && id(battery_mv).state < 3350.0f)
                        || id(simulate_low_battery).state;
             then:
               # ── Low battery boot path ────────────────────────────────────────────
