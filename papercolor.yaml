@@ -305,15 +305,11 @@ color:
     red: 0%
     green: 100%
     blue: 0%
+  # color_yellow: used for WiFi arc inactive rings, and as the dither pair with color_red
+  # to simulate orange in the header (1px checkerboard). Spectra-E6 has no native orange.
   - id: color_yellow
     red: 100%
     green: 100%
-    blue: 0%
-  # Note: Spectra-E6 driver has no orange — threshold is green > 128.
-  # green ≤ 128 → RED, green > 128 → YELLOW. color_orange is unused; delete if desired.
-  - id: color_orange
-    red: 100%
-    green: 50%
     blue: 0%
 
 # ── Fonts ─────────────────────────────────────────────────────────────────────
@@ -717,21 +713,30 @@ display:
       }
 
       // ── Header color — color-coded by outdoor temp if switch enabled ──────
+      // Bands: blue ≤64°F, green ≤75.5°F, orange (dithered) ≤85.5°F, red >85.5°F
+      // Orange is simulated via 1px red/yellow checkerboard dither — no solid orange in Spectra E6.
+      // Black text on orange (light dither); white text on blue/green/red.
+      bool _header_orange = false;
       Color header_color = id(color_blue);
       if (id(header_color_coded).state && id(ha_outdoor_temp).has_state()) {
         float _ot = id(ha_outdoor_temp).state;
         if      (_ot <= 64.0f)  header_color = id(color_blue);
         else if (_ot <= 75.5f)  header_color = id(color_green);
-        else if (_ot <= 85.5f)  header_color = id(color_yellow);
+        else if (_ot <= 85.5f)  { _header_orange = true; }  // orange: drawn as red+yellow 1px dither below; header_color unused for this band
         else                    header_color = id(color_red);
       }
 
       // ── Header bar ────────────────────────────────────────────────────────
-      it.filled_rectangle(0, 0, 600, 56, header_color);
-      // Yellow header is a light color — use black text so it remains legible
-      bool _header_is_yellow = id(header_color_coded).state && id(ha_outdoor_temp).has_state() &&
-                               id(ha_outdoor_temp).state > 75.5f && id(ha_outdoor_temp).state <= 85.5f;
-      Color header_text_color = _header_is_yellow ? id(color_black) : id(color_white);
+      if (_header_orange) {
+        // 1px checkerboard dither: red + yellow → orange
+        for (int _y = 0; _y < 56; _y++)
+          for (int _x = 0; _x < 600; _x++)
+            it.draw_pixel_at(_x, _y, ((_x + _y) % 2 == 0) ? id(color_red) : id(color_yellow));
+      } else {
+        it.filled_rectangle(0, 0, 600, 56, header_color);
+      }
+      // Orange dither is a light mix — use black text; dark headers use white
+      Color header_text_color = _header_orange ? id(color_black) : id(color_white);
       it.print(300, 12, id(font_large), header_text_color, TextAlign::TOP_CENTER, "HOME ASSISTANT");
 
 

@@ -27,7 +27,7 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 ## Features
 
 - **E Ink Spectra 6 display** — color-coded header with title; outdoor temp as large centered hero value (from HA); centered room temp °F / humidity (local SHT40); footer with WiFi arc + signal %, last update timestamp, and MDI battery icon + charge % — all on a shared line
-- **Color-coded header** — header background changes color based on outdoor temperature: blue (≤64°F), green (≤75.5°F), yellow (≤85.5°F), red (>85.5°F); header text is black on yellow, white on all other colors; toggleable via HA switch (on by default)
+- **Color-coded header** — header background changes color based on outdoor temperature: blue (≤64°F), green (≤75.5°F), orange (≤85.5°F), red (>85.5°F); header text is black on orange, white on all other colors; toggleable via HA switch (on by default). Orange is not a native Spectra E6 color — it is simulated via a 1px red/yellow checkerboard dither pattern
 - **Battery icon** — black when charging or above 20%, red at ≤20%; MDI icon tracks charge level and charging state
 - **Deep sleep** — configurable sleep cycle (default 20 min on battery), ~2–3 day estimated battery life
 - **USB-aware** — skips deep sleep when USB connected; the screen refreshes every 10 minutes by default (configurable via the "On USB Refresh Interval" slider in HA)
@@ -53,8 +53,10 @@ The sequence also enables the boost converter (`PWR_CFG` register 0x06, bits 0 a
 
 Register sequence derived from [M5GFX source](https://github.com/m5stack/M5GFX) and [M5Stack factory firmware HAL](https://github.com/m5stack/M5PaperColor-UserDemo).
 
-### Spectra E6 Color Palette
-Despite being marketed as "7-color," the ESPHome `epaper_spi` Spectra-E6 driver exposes **6 usable colors**: black, white, red, yellow, green, blue. Orange is not available — the driver quantizes any RGB value to the nearest of these six using a simple per-channel threshold (green > 128 → yellow, green ≤ 128 with red dominant → red). Colors that appear orange on screen will map to either red or yellow depending on the green channel value.
+### Spectra E6 Color Palette & Dithering
+Despite being marketed as "7-color," the ESPHome `epaper_spi` Spectra-E6 driver exposes **6 usable colors**: black, white, red, yellow, green, blue. Orange is not a native color — the driver quantizes any RGB value to the nearest of these six using a simple per-channel threshold (green > 128 → yellow, green ≤ 128 with red dominant → red).
+
+However, additional colors can be **approximated via 1px checkerboard dithering** using `draw_pixel_at()` in the display lambda. This config uses a red+yellow 1px dither to simulate orange for the header band. At 150 PPI the dither pattern blends acceptably at normal viewing distance. This technique can extend the effective palette to approximate any color that can be blended from the six native colors — though results vary with viewing distance and color combination. Larger block sizes (2px, 4px) produce a visible checkerboard pattern and are generally not recommended.
 
 ### M5PM1 Sleep Power Optimization
 Before entering deep sleep, the config writes PMIC register `0x11` to pull the EPD (GPIO0, bit 0) and SD card (GPIO3, bit 3) rails LOW. Without this, the PMIC boost converter continues driving the ~15V EPD rails during sleep, drawing an estimated ~650µA unnecessarily. The e-paper panel is bistable — it holds its image with the rail off. Both rails are unconditionally re-enabled at the next boot via the priority 800 sequence before the display driver initializes.
