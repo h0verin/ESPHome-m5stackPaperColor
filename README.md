@@ -54,7 +54,7 @@ The sequence also enables the boost converter (`PWR_CFG` register 0x06, bits 0 a
 Register sequence derived from [M5GFX source](https://github.com/m5stack/M5GFX) and [M5Stack factory firmware HAL](https://github.com/m5stack/M5PaperColor-UserDemo).
 
 ### Spectra E6 Color Palette & Dithering
-Despite being marketed as "7-color," the ESPHome `epaper_spi` Spectra-E6 driver exposes **6 usable colors**: black, white, red, yellow, green, blue. Orange is not a native color — the driver quantizes any RGB value to the nearest of these six using a simple per-channel threshold (green > 128 → yellow, green ≤ 128 with red dominant → red).
+E Ink's Spectra 6 platform is marketed as "vivid full color" or "7-color," but the underlying panel exposes **6 distinct solid color channels**: black, white, red, yellow, green, and blue. The ESPHome `epaper_spi` Spectra-E6 driver faithfully implements all six — the color limitation is a panel hardware reality, not a driver gap. Orange is not one of the six native colors; any RGB value approximating orange will be quantized by the driver to either red or yellow depending on the green channel value (green > 128 → yellow, green ≤ 128 with red dominant → red).
 
 However, additional colors can be **approximated via 1px checkerboard dithering** using `draw_pixel_at()` in the display lambda. This config uses a red+yellow 1px dither to simulate orange for the header band. At 150 PPI the dither pattern blends acceptably at normal viewing distance. This technique can extend the effective palette to approximate any color that can be blended from the six native colors — though results vary with viewing distance and color combination. Larger block sizes (2px, 4px) produce a visible checkerboard pattern and are generally not recommended.
 
