@@ -154,12 +154,19 @@ esphome:
                   {
                     auto *bus = id(i2c_bus);
                     const uint8_t addr = 0x6E;
+                    // Reg 0x11: pull EPD (GPIO0, bit0) and SD (GPIO3, bit3) rails LOW
                     uint8_t r = 0x11, v = 0;
                     bus->write(addr, &r, 1, false);
                     bus->read(addr, &v, 1);
                     uint8_t d[2] = {r, uint8_t(v & ~((1<<0) | (1<<3)))};
                     bus->write(addr, d, 2);
-                    ESP_LOGI("M5PM1", "EPD + SD rails disabled (low battery)");
+                    // Reg 0x06: disable RGB LDO (bit2=LDO_EN=PY_RGB_PWR_EN) and Grove Boost (bit3=BOOST_EN=PY_GROVE_OUT_EN)
+                    r = 0x06; v = 0;
+                    bus->write(addr, &r, 1, false);
+                    bus->read(addr, &v, 1);
+                    uint8_t d2[2] = {r, uint8_t(v & ~((1<<2) | (1<<3)))};
+                    bus->write(addr, d2, 2);
+                    ESP_LOGI("M5PM1", "EPD + SD + RGB LDO + Grove Boost disabled (low battery)");
                   }
               # Indefinite sleep — wake via Button B (GPIO9) only, no timer
               - lambda: |-
@@ -194,10 +201,12 @@ esphome:
                     - logger.log: "USB connected — skipping deep sleep"
                     - deep_sleep.prevent: deep_sleep_ctrl
                   else:
-                    # ── M5PM1 EPD/SD rail disable ──────────────────────────────────
+                    # ── M5PM1 rail disable before sleep ────────────────────────────
                     # Only disable when going to sleep — on USB the rails must stay on so
                     # the interval refresh can update the display without a reboot.
-                    # Rails are re-enabled unconditionally at the next boot (priority 800).
+                    # All rails re-enabled unconditionally at the next boot (priority 800).
+                    # Reg 0x11 bits: EPD (GPIO0, bit0), SD (GPIO3, bit3)
+                    # Reg 0x06 bits: RGB LDO (bit2=LDO_EN=PY_RGB_PWR_EN), Grove Boost (bit3=BOOST_EN=PY_GROVE_OUT_EN)
                     - lambda: |-
                         {
                           auto *bus = id(i2c_bus);
@@ -207,7 +216,12 @@ esphome:
                           bus->read(addr, &v, 1);
                           uint8_t d[2] = {r, uint8_t(v & ~((1<<0) | (1<<3)))};
                           bus->write(addr, d, 2);
-                          ESP_LOGI("M5PM1", "EPD + SD rails disabled before sleep");
+                          r = 0x06; v = 0;
+                          bus->write(addr, &r, 1, false);
+                          bus->read(addr, &v, 1);
+                          uint8_t d2[2] = {r, uint8_t(v & ~((1<<2) | (1<<3)))};
+                          bus->write(addr, d2, 2);
+                          ESP_LOGI("M5PM1", "EPD + SD + RGB LDO + Grove Boost disabled before sleep");
                         }
 
 # ── Globals ───────────────────────────────────────────────────────────────────
@@ -612,7 +626,12 @@ binary_sensor:
                           bus->read(addr, &v, 1);
                           uint8_t d[2] = {r, uint8_t(v & ~((1<<0) | (1<<3)))};
                           bus->write(addr, d, 2);
-                          ESP_LOGI("M5PM1", "EPD + SD rails disabled (USB disconnect)");
+                          r = 0x06; v = 0;
+                          bus->write(addr, &r, 1, false);
+                          bus->read(addr, &v, 1);
+                          uint8_t d2[2] = {r, uint8_t(v & ~((1<<2) | (1<<3)))};
+                          bus->write(addr, d2, 2);
+                          ESP_LOGI("M5PM1", "EPD + SD + RGB LDO + Grove Boost disabled (USB disconnect)");
                         }
                     - deep_sleep.allow: deep_sleep_ctrl
                     - deep_sleep.enter: deep_sleep_ctrl

@@ -59,7 +59,16 @@ E Ink's Spectra 6 platform is marketed as "vivid full color" or "7-color," but t
 However, additional colors can be **approximated via 1px checkerboard dithering** using `draw_pixel_at()` in the display lambda. This config uses a red+yellow 1px dither to simulate orange for the header band. At 150 PPI the dither pattern blends acceptably at normal viewing distance. This technique can extend the effective palette to approximate any color that can be blended from the six native colors — though results vary with viewing distance and color combination. Larger block sizes (2px, 4px) produce a visible checkerboard pattern and are generally not recommended.
 
 ### M5PM1 Sleep Power Optimization
-Before entering deep sleep, the config writes PMIC register `0x11` to pull the EPD (GPIO0, bit 0) and SD card (GPIO3, bit 3) rails LOW. Without this, the PMIC boost converter continues driving the ~15V EPD rails during sleep, drawing an estimated ~650µA unnecessarily. The e-paper panel is bistable — it holds its image with the rail off. Both rails are unconditionally re-enabled at the next boot via the priority 800 sequence before the display driver initializes.
+Before entering deep sleep, the config disables four PMIC-controlled power rails:
+
+| Register | Bit | Rail | Function |
+|---|---|---|---|
+| `0x11` GPIO output | 0 | EPD (GPIO0) | E-paper display power |
+| `0x11` GPIO output | 3 | SD card (GPIO3) | SD card power |
+| `0x06` PWR_CFG | 2 | LDO 3.3V (`PY_RGB_PWR_EN`) | WS2812B RGB LED VDD |
+| `0x06` PWR_CFG | 3 | Boost 5V (`PY_GROVE_OUT_EN`) | Grove port 5V supply |
+
+Without the EPD rail disable, the PMIC boost converter continues driving ~15V EPD rails during sleep (~650µA). The RGB LDO adds a further ~1–4 mA leak from the WS2812B VDD staying live. The e-paper panel is bistatic — it holds its image with the rail off. All rails are unconditionally re-enabled at the next boot via the priority 800 sequence before the display driver initializes.
 
 The rail disable only happens when going to sleep (battery-powered). On USB, the rails stay on so periodic interval refreshes continue to work. The boot sequence waits up to 20 seconds after triggering a display refresh before disabling the rails, ensuring the full ~15–19s Spectra E6 panel refresh completes first.
 
