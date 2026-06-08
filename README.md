@@ -68,14 +68,14 @@ Before entering deep sleep, the config disables four PMIC-controlled power rails
 | `0x06` PWR_CFG | 2 | LDO 3.3V (`PY_RGB_PWR_EN`) | WS2812B RGB LED VDD |
 | `0x06` PWR_CFG | 3 | Boost 5V (`PY_GROVE_OUT_EN`) | Grove port 5V supply |
 
-Without the EPD rail disable, the PMIC boost converter continues driving ~15V EPD rails during sleep (~650µA). The RGB LDO adds a further ~1–4 mA leak from the WS2812B VDD staying live. The e-paper panel is bistatic — it holds its image with the rail off. All rails are unconditionally re-enabled at the next boot via the priority 800 sequence before the display driver initializes.
+Without the EPD rail disable, the PMIC boost converter continues driving ~15V EPD rails during sleep (~650µA). The RGB LDO adds a further ~1–4 mA leak from the WS2812B VDD staying live. The e-paper panel is bistable — it holds its image with the rail off. All rails are unconditionally re-enabled at the next boot via the priority 800 sequence before the display driver initializes.
 
 The rail disable only happens when going to sleep (battery-powered). On USB, the rails stay on so periodic interval refreshes continue to work. The boot sequence waits up to 20 seconds after triggering a display refresh before disabling the rails, ensuring the full ~15–19s Spectra E6 panel refresh completes first.
 
 ### Low Battery Screen & Threshold
 The low battery warning triggers at **3350 mV** (~6% on this device's calibrated discharge curve), chosen to give approximately 1–1.5 hours of reserve above the measured discharge cliff at ~3300 mV. Below 3300 mV the discharge rate jumps from ~20–30 mV/hr to 100–200 mV/hr, so the device can die quickly once past that point. The 3350 mV threshold was calibrated from a full discharge run (Jun 2026) on a 1250 mAh cell at 20-min sleep intervals. Note that the percentage shown on the low battery screen reflects this device's specific LiPo calibration curve — the threshold mV value is what matters for tuning, not the displayed percentage.
 
-After rendering the warning screen the device enters a 7-day deep sleep with the EPD boost rails disabled. It will not wake on a timer — only Button B (GPIO9) wakes it. The `Simulate Low Battery` switch in HA is safe to leave in permanently: `restore_mode: ALWAYS_OFF` means it resets to OFF on every boot regardless, so it cannot cause a boot loop. It has no effect while USB is connected.
+After rendering the warning screen the device enters a 7-day deep sleep with all four power rails disabled (EPD, SD, RGB, Grove). It will not wake on a timer — only Button B (GPIO9) wakes it. The `Simulate Low Battery` switch in HA is safe to leave in permanently: `restore_mode: ALWAYS_OFF` means it resets to OFF on every boot regardless, so it cannot cause a boot loop. It has no effect while USB is connected.
 
 If the device dies before showing the screen (stale display, no warning), raise the threshold to 3400–3450 mV. If it triggers too early, lower toward 3320 mV — but do not go below 3310 mV without further discharge data.
 
