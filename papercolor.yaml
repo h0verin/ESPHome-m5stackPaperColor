@@ -442,14 +442,14 @@ sensor:
     # Cliff confirmed at ~3300 mV; effective PMIC cutoff at ~3000–3018 mV under load.
     # NOTE: calibrate_linear with multiple points does a global least-squares fit (not piecewise),
     # so a lambda filter is used here to implement true piecewise linear interpolation.
-    # 4244 mV anchor added for charger-maintained voltage (charger holds 4240–4244 mV).
+    # 4160 mV = measured resting OCV after full charge (USB removed). 4244 mV anchor covers charger-maintained voltage.
     filters:
       - lambda: |-
           struct Pt { float x, y; };
           static const Pt pts[] = {
             {3000, 0}, {3300, 3}, {3400, 8}, {3500, 15},
             {3600, 23}, {3700, 34}, {3800, 41}, {3900, 47},
-            {4000, 57}, {4080, 70}, {4200, 100}, {4244, 100}
+            {4000, 57}, {4080, 70}, {4160, 100}, {4244, 100}
           };
           const int n = sizeof(pts) / sizeof(pts[0]);
           if (x <= pts[0].x) return 0.0f;
