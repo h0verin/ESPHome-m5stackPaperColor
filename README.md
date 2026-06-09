@@ -180,6 +180,7 @@ After first flash, all subsequent updates can be done OTA.
 
 | GPIO | Function |
 |---|---|
+| GPIO0 | PMIC boot control (`PY_BOOT_OUT`, strapping pin) |
 | GPIO1 | Button C |
 | GPIO2 | I2C SCL |
 | GPIO3 | I2C SDA |
