@@ -443,13 +443,16 @@ sensor:
     # NOTE: calibrate_linear with multiple points does a global least-squares fit (not piecewise),
     # so a lambda filter is used here to implement true piecewise linear interpolation.
     # 4160 mV = measured resting OCV after full charge (USB removed). 4244 mV anchor covers charger-maintained voltage.
+    # Curve derived from history-24.csv full discharge run (Jun 5–7 2026, 43.93 hrs total), then rescaled so that
+    # 3350 mV = 0% (low-battery shutdown threshold) and 4160 mV = 100%. Users see 0% when the device shuts down,
+    # not a confusing ~8%. Each anchor = rescaled fraction of usable capacity remaining at that voltage.
     filters:
       - lambda: |-
           struct Pt { float x, y; };
           static const Pt pts[] = {
-            {3000, 0}, {3300, 3}, {3400, 8}, {3500, 15},
-            {3600, 23}, {3700, 34}, {3800, 41}, {3900, 47},
-            {4000, 57}, {4080, 70}, {4160, 100}, {4244, 100}
+            {3000, 0}, {3350, 0}, {3400, 5}, {3500, 13},
+            {3600, 28}, {3700, 42}, {3800, 53}, {3900, 62},
+            {4000, 78}, {4080, 96}, {4160, 100}, {4244, 100}
           };
           const int n = sizeof(pts) / sizeof(pts[0]);
           if (x <= pts[0].x) return 0.0f;
