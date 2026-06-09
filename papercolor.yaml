@@ -369,7 +369,7 @@ font:
       - "\U000F0086"  # battery-charging-20
       - "\U000F089C"  # battery-charging-10
   # Tabler icon font — wifi icons for footer display
-  - file: "https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/fonts/tabler-icons.ttf"
+  - file: "https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.44.0/dist/fonts/tabler-icons.ttf"
     id: tabler_font
     size: 26
     glyphs:
