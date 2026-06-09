@@ -29,7 +29,7 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 - **E Ink Spectra 6 display** — color-coded header with title; outdoor temp as large centered hero value (from HA); centered room temp °F / humidity (local SHT40); footer with WiFi arc + signal %, last update timestamp, and MDI battery icon + charge % — all on a shared line
 - **Color-coded header** — header background changes color based on outdoor temperature: blue (≤64°F), green (≤75.5°F), orange (≤85.5°F), red (>85.5°F); header text is black on orange, white on all other colors; toggleable via HA switch (on by default). Orange is not a native Spectra E6 color — it is simulated via a 1px red/yellow checkerboard dither pattern
 - **Battery icon** — black when charging or above 20%, red at ≤20%; MDI icon tracks charge level and charging state
-- **Deep sleep** — configurable sleep cycle (default 20 min on battery), ~2–3 day estimated battery life
+- **Deep sleep** — configurable sleep cycle (default 20 min on battery), estimated **~8–11 day battery life** at the 20-min default (calculated from measured 5-min discharge data; not yet directly tested at 20-min intervals)
 - **USB-aware** — skips deep sleep when USB connected; the screen refreshes every 10 minutes by default (configurable via the "On USB Refresh Interval" slider in HA)
 - **Configurable intervals** — "On Battery Sleep Duration" and "On USB Refresh Interval" sliders (5–120 min, step 5) available in the HA device config; device must be awake for changes to be delivered
 - **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state; icon turns red at ≤20%. Calibrated from a full discharge run (charge to PMIC cutoff at ~3000 mV); piecewise curve tuned to the measured LiPo discharge shape including the steep cliff below ~3300 mV.
@@ -71,6 +71,22 @@ Before entering deep sleep, the config disables four PMIC-controlled power rails
 Without the EPD rail disable, the PMIC boost converter continues driving ~15V EPD rails during sleep (~650µA). The RGB LDO adds a further ~1–4 mA leak from the WS2812B VDD staying live. The e-paper panel is bistable — it holds its image with the rail off. All rails are unconditionally re-enabled at the next boot via the priority 800 sequence before the display driver initializes.
 
 The rail disable only happens when going to sleep (battery-powered). On USB, the rails stay on so periodic interval refreshes continue to work. The boot sequence waits up to 20 seconds after triggering a display refresh before disabling the rails, ensuring the full ~15–19s Spectra E6 panel refresh completes first.
+
+### Sleep Architecture & Known Ceiling
+
+This config uses the **ESP32's internal RTC timer** for deep sleep wake. When the ESP32 sleeps, the PMIC remains partially active — the JW5712 buck converter continues supplying the 3V3\_L2 rail to keep the ESP32 RTC alive. After all four rail disables above, estimated sleep current is **~200–500 µA**.
+
+The M5Stack factory firmware ([M5PaperColor-UserDemo](https://github.com/m5stack/M5PaperColor-UserDemo)) takes a more aggressive approach: it programs the external **RTC (RX8130CE)** with an alarm, then issues a full **PMIC shutdown** (`SYS_CMD_OFF`, reg `0x0C = 0xA1`), cutting the 3V3\_L2 rail entirely. The RTC alarm fires → drives a PMIC wake pin → PMIC boots from scratch. This is how the product datasheet's **92.53 µA standby** figure is achieved.
+
+**Expected gain from implementing the factory approach (20-min sleep, 60-sec wake):**
+| Approach | Est. sleep current | Avg current | Battery life |
+|---|---|---|---|
+| This config (ESP32 deep sleep, all rails off) | ~350 µA | ~5–6 mA | ~210–250 hrs (~8–10 days) |
+| Factory approach (PMIC SYS\_CMD\_OFF) | ~92 µA | ~4.8–5.8 mA | ~215–260 hrs (~9–11 days) |
+
+The ~6 hour gain (~3.4%) is real but modest — because at 20-minute intervals, the 60-second wake period at ~150 mA dominates ~95% of the average current budget. Halving the sleep current moves the needle less than you'd expect.
+
+**Why this config doesn't implement it:** The PMIC `SYS_CMD_OFF` command cuts ESP32 power immediately with no cleanup window, requiring the wake timer to be handled entirely by the external RTC rather than the ESP32's own RTC — which means stepping outside ESPHome's `deep_sleep` component entirely. The implementation would require direct I2C writes to the RX8130CE to set an alarm, PMIC GPIO wake-pin configuration, and careful ordering to avoid flash corruption if power is cut mid-write. For a ~6 hour improvement on a ~7 day battery this risk/complexity trade-off isn't warranted here, but the path is clear for anyone wanting to take it further — the external RTC is already on the I2C bus at `0x32`.
 
 ### Low Battery Screen & Threshold
 The low battery warning triggers at **3350 mV** (~6% on this device's calibrated discharge curve), chosen to give approximately 1–1.5 hours of reserve above the measured discharge cliff at ~3300 mV. Below 3300 mV the discharge rate jumps from ~20–30 mV/hr to 100–200 mV/hr, so the device can die quickly once past that point. The 3350 mV threshold was calibrated from a full discharge run (Jun 2026) on a 1250 mAh cell at 20-min sleep intervals. Note that the percentage shown on the low battery screen reflects this device's specific LiPo calibration curve — the threshold mV value is what matters for tuning, not the displayed percentage.
