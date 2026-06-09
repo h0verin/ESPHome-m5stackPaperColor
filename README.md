@@ -63,8 +63,8 @@ Before entering deep sleep, the config disables four PMIC-controlled power rails
 
 | Register | Bit | Rail | Function |
 |---|---|---|---|
-| `0x11` GPIO output | 0 | EPD (GPIO0) | E-paper display power |
-| `0x11` GPIO output | 3 | SD card (GPIO3) | SD card power |
+| `0x11` GPIO output | 0 | EPD (`PY_EPD_EN`, PMIC GPIO0) | E-paper display power |
+| `0x11` GPIO output | 3 | SD card (`PY_SD_PWR_EN`, PMIC GPIO3) | SD card power |
 | `0x06` PWR_CFG | 2 | LDO 3.3V (`PY_RGB_PWR_EN`) | WS2812B RGB LED VDD |
 | `0x06` PWR_CFG | 3 | Boost 5V (`PY_GROVE_OUT_EN`) | Grove port 5V supply |
 
@@ -178,27 +178,27 @@ After first flash, all subsequent updates can be done OTA.
 
 ## Pin Reference
 
-| Function | GPIO |
+| GPIO | Function |
 |---|---|
-| I2C SDA | GPIO3 |
-| I2C SCL | GPIO2 |
-| SPI CLK | GPIO15 |
-| SPI MOSI | GPIO13 |
-| SPI MISO | GPIO14 |
-| EPD CS | GPIO44 |
-| EPD DC | GPIO43 |
-| EPD BUSY | GPIO11 |
-| EPD RST | GPIO12 |
-| SD Card CS | GPIO47 |
-| Button A | GPIO10 |
-| Button B (wake) | GPIO9 |
-| Button C | GPIO1 |
-| RGB LEDs (data) | GPIO21 |
-| Grove I | GPIO4 |
-| Grove O | GPIO5 |
-| Audio Power Enable | GPIO45 |
-| Speaker Enable | GPIO46 |
-| IR TX | GPIO48 |
+| GPIO1 | Button C |
+| GPIO2 | I2C SCL |
+| GPIO3 | I2C SDA |
+| GPIO4 | Grove I |
+| GPIO5 | Grove O |
+| GPIO9 | Button B (wake) |
+| GPIO10 | Button A |
+| GPIO11 | EPD BUSY |
+| GPIO12 | EPD RST |
+| GPIO13 | SPI MOSI |
+| GPIO14 | SPI MISO |
+| GPIO15 | SPI CLK |
+| GPIO21 | RGB LEDs (data) |
+| GPIO43 | EPD DC |
+| GPIO44 | EPD CS |
+| GPIO45 | Audio Power Enable |
+| GPIO46 | Speaker Enable |
+| GPIO47 | SD Card CS |
+| GPIO48 | IR TX |
 
 ---
 
