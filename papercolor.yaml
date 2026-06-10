@@ -130,6 +130,7 @@ esphome:
               # SYS_CMD_OFF cuts all rails — no need to disable them individually first.
               - lambda: |-
                   id(low_battery_triggered) = true;
+                  id(initial_display_done) = true;  // prevent on_value from queuing a second refresh during our 20s EPD wait
                   ESP_LOGW("battery", "Low battery (%.0f mV) — showing warning screen", id(battery_mv).state);
               - component.update: m5_color_screen
               - script.stop: ota_led_flash
