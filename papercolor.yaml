@@ -77,6 +77,9 @@ esphome:
               uint8_t d[2] = {r, uint8_t(v | (1<<0) | (1<<3) | (1<<5))}; bus->write(addr, d, 2); }
             ESP_LOGI("M5PM1", "Power hold configured");
 
+            // Disable PMIC I2C idle-sleep — keeps PMIC responsive during shutdown sequence
+            { uint8_t d[2] = {0x09, 0x00}; bus->write(addr, d, 2); }
+
             // Button config — disable hardware reset functions on physical buttons
             // to prevent unintended resets (regs 0x49 and 0x4A)
             { uint8_t d[2] = {0x49, 0x00}; bus->write(addr, d, 2); }
@@ -84,37 +87,21 @@ esphome:
 
             delay(500);
             ESP_LOGI("M5PM1", "EPD power rail enabled");
-    - priority: 600
-      then:
-        - lambda: |-
-            // If woken by Button B (GPIO wake) and not on USB power, turn LEDs green
-            // as a visual "ready to flash wirelessly" indicator.
-            esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-            bool gpio_wake = (cause == ESP_SLEEP_WAKEUP_EXT0 || cause == ESP_SLEEP_WAKEUP_EXT1);
-            if (gpio_wake) {
-              ESP_LOGI("boot", "Woke via Button B — starting OTA indicator LED flash");
-              id(ota_led_flash).execute();
-            }
     - priority: -100
       then:
         - lambda: |-
-            // Brief blue boot-confirmation flash — skip if already lit for GPIO wake indicator
-            esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-            bool gpio_wake = (cause == ESP_SLEEP_WAKEUP_EXT0 || cause == ESP_SLEEP_WAKEUP_EXT1);
-            if (!gpio_wake) {
-              auto call = id(leds).turn_on();
-              call.set_rgb(0.0f, 0.0f, 1.0f);
-              call.set_brightness(0.3f);
-              call.perform();
-            }
-        - if:
-            condition:
-              lambda: |-
-                esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-                return cause != ESP_SLEEP_WAKEUP_EXT0 && cause != ESP_SLEEP_WAKEUP_EXT1;
-            then:
-              - delay: 1s
-              - light.turn_off: leds
+            // Brief blue boot-confirmation flash on every boot.
+            // With PMIC full shutdown, all boots are cold power-on — GPIO9/Button B
+            // can no longer wake the device (ESP32 is powerless during shutdown).
+            // On-demand wake uses physical power button S4 (PMIC-side), which looks
+            // identical to a timer wake at the ESP32 level.
+            auto call = id(leds).turn_on();
+            call.set_rgb(0.0f, 0.0f, 1.0f);
+            call.set_brightness(0.3f);
+            call.perform();
+        - delay: 1s
+        - light.turn_off: leds
+        - script.execute: battery_watchdog
     - priority: -200
       then:
         - delay: 25s     # display hardware init takes ~19s; wait for it to complete
@@ -131,8 +118,7 @@ esphome:
             condition:
               # Low battery path: triggers if voltage is valid and below threshold,
               # or if the "Simulate Low Battery" switch is on.
-              # USB guard: never trigger on USB — deep_sleep.enter bypasses prevent
-              # and would force sleep even while charging, which is incorrect.
+              # USB guard: never trigger on USB — PMIC shutdown while charging is incorrect.
               # NaN (no reading) evaluates false — safe fallback to normal path.
               lambda: |-
                 if (id(usb_connected).state) return false;
@@ -140,39 +126,22 @@ esphome:
                        || id(simulate_low_battery).state;
             then:
               # ── Low battery boot path ────────────────────────────────────────────
-              # Render warning screen then enter indefinite deep sleep (GPIO wake only).
-              # EPD rails stay on through the 20s refresh window, then are disabled.
+              # Render warning screen then issue PMIC shutdown with 7-day timer.
+              # SYS_CMD_OFF cuts all rails — no need to disable them individually first.
               - lambda: |-
                   id(low_battery_triggered) = true;
                   ESP_LOGW("battery", "Low battery (%.0f mV) — showing warning screen", id(battery_mv).state);
               - component.update: m5_color_screen
               - script.stop: ota_led_flash
               - light.turn_off: leds
-              # Wait for EPD panel refresh to complete before cutting rails
+              # Wait for EPD panel refresh to complete before PMIC cuts power (~15-19s refresh)
               - delay: 20s
-              - lambda: |-
-                  {
-                    auto *bus = id(i2c_bus);
-                    const uint8_t addr = 0x6E;
-                    // Reg 0x11: pull EPD (GPIO0, bit0) and SD (GPIO3, bit3) rails LOW
-                    uint8_t r = 0x11, v = 0;
-                    bus->write(addr, &r, 1, false);
-                    bus->read(addr, &v, 1);
-                    uint8_t d[2] = {r, uint8_t(v & ~((1<<0) | (1<<3)))};
-                    bus->write(addr, d, 2);
-                    // Reg 0x06: disable RGB LDO (bit2=LDO_EN=PY_RGB_PWR_EN) and Grove Boost (bit3=BOOST_EN=PY_GROVE_OUT_EN)
-                    r = 0x06; v = 0;
-                    bus->write(addr, &r, 1, false);
-                    bus->read(addr, &v, 1);
-                    uint8_t d2[2] = {r, uint8_t(v & ~((1<<2) | (1<<3)))};
-                    bus->write(addr, d2, 2);
-                    ESP_LOGI("M5PM1", "EPD + SD + RGB LDO + Grove Boost disabled (low battery)");
-                  }
-              # Indefinite sleep — wake via Button B (GPIO9) only, no timer
-              - lambda: |-
-                  id(deep_sleep_ctrl).set_sleep_duration(7ULL * 24ULL * 3600ULL * 1000ULL);
-                  ESP_LOGI("sleep", "Entering indefinite deep sleep (low battery)");
-              - deep_sleep.enter: deep_sleep_ctrl
+              # PMIC shutdown with 7-day timer — effectively indefinite.
+              # User can wake manually via physical power button S4 to charge.
+              - lambda: 'ESP_LOGI("sleep", "PMIC shutdown (low battery) — 7-day timer");'
+              - script.execute:
+                  id: pmic_shutdown
+                  wake_seconds: 604800
             else:
               # ── Normal boot path ─────────────────────────────────────────────────
               - component.update: wifi_signal_db
@@ -190,39 +159,22 @@ esphome:
               # and takes 15–19s. We must not cut the EPD power rail until it is complete.
               - delay: 20s
               - lambda: 'id(last_usb_refresh_ms) = millis();'
-              - lambda: |-
-                  uint64_t sleep_ms = (uint64_t)(id(battery_sleep_mins).state * 60.0f) * 1000ULL;
-                  id(deep_sleep_ctrl).set_sleep_duration(sleep_ms);
-                  ESP_LOGI("sleep", "Battery sleep duration set to %.0f min", id(battery_sleep_mins).state);
               - if:
                   condition:
                     lambda: 'return id(usb_connected).state;'
                   then:
-                    - logger.log: "USB connected — skipping deep sleep"
-                    - deep_sleep.prevent: deep_sleep_ctrl
+                    # USB connected — stay awake. Interval refresh handles periodic updates.
+                    # Rails must remain on for display updates without rebooting.
+                    - logger.log: "USB connected — staying awake (no PMIC shutdown)"
                   else:
-                    # ── M5PM1 rail disable before sleep ────────────────────────────
-                    # Only disable when going to sleep — on USB the rails must stay on so
-                    # the interval refresh can update the display without a reboot.
-                    # All rails re-enabled unconditionally at the next boot (priority 800).
-                    # Reg 0x11 bits: EPD (GPIO0, bit0), SD (GPIO3, bit3)
-                    # Reg 0x06 bits: RGB LDO (bit2=LDO_EN=PY_RGB_PWR_EN), Grove Boost (bit3=BOOST_EN=PY_GROVE_OUT_EN)
-                    - lambda: |-
-                        {
-                          auto *bus = id(i2c_bus);
-                          const uint8_t addr = 0x6E;
-                          uint8_t r = 0x11, v = 0;
-                          bus->write(addr, &r, 1, false);
-                          bus->read(addr, &v, 1);
-                          uint8_t d[2] = {r, uint8_t(v & ~((1<<0) | (1<<3)))};
-                          bus->write(addr, d, 2);
-                          r = 0x06; v = 0;
-                          bus->write(addr, &r, 1, false);
-                          bus->read(addr, &v, 1);
-                          uint8_t d2[2] = {r, uint8_t(v & ~((1<<2) | (1<<3)))};
-                          bus->write(addr, d2, 2);
-                          ESP_LOGI("M5PM1", "EPD + SD + RGB LDO + Grove Boost disabled before sleep");
-                        }
+                    # ── Battery mode: PMIC full shutdown ────────────────────────────
+                    # SYS_CMD_OFF cuts all rails — no need to disable them individually.
+                    # Disabling rails before shutdown would leave them off if the fail-safe
+                    # aborts shutdown, degrading the device without powering it down.
+                    - lambda: 'ESP_LOGI("sleep", "PMIC shutdown — wake in %.0f min", id(battery_sleep_mins).state);'
+                    - script.execute:
+                        id: pmic_shutdown
+                        wake_seconds: !lambda 'return (uint32_t)(id(battery_sleep_mins).state * 60.0f);'
 
 # ── Globals ───────────────────────────────────────────────────────────────────
 
@@ -257,6 +209,8 @@ api:
   encryption:
     key: !secret papercolor_api_key
 
+safe_mode:
+
 ota:
   - platform: esphome
     password: !secret papercolor_ota_password
@@ -264,6 +218,7 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  fast_connect: true   # skip AP scan on cold-boot wake — saves 1-3s per cycle
   # use_address: 192.168.3.x  # Uncomment and set to your device's reserved/static IP
                                # Improves OTA reliability by bypassing mDNS resolution
   ap:
@@ -502,6 +457,89 @@ sensor:
 
 # ── Scripts ───────────────────────────────────────────────────────────────────
 script:
+  # ── PMIC full shutdown ───────────────────────────────────────────────────────
+  # Programs M5PM1 internal wake timer (regs 0x38–0x3D) then issues SYS_CMD_OFF
+  # (reg 0x0C = 0xA1), cutting all power including the ESP32's 3V3_L2 rail.
+  # The PMIC self-restarts after wake_seconds, producing a full cold boot.
+  #
+  # This achieves ~92 µA standby (product spec) vs ~5-10 mA with ESP32 deep sleep.
+  # Empirically confirmed: ESP32 deep sleep provides no meaningful power reduction
+  # on this hardware — PMIC + IT8951E controller dominate at ~5-10 mA regardless
+  # of sleep interval (5-min and 30-min discharge runs showed identical drain rates).
+  #
+  # Fail-safe: reads back reg 0x3C after arm — if != 0x0B, aborts and stays awake.
+  # If shutdown fails the device stays on (WiFi + HA keep it alive).
+  - id: pmic_shutdown
+    mode: single
+    parameters:
+      wake_seconds: uint32_t
+    then:
+      - lambda: |-
+          {
+            auto *bus = id(i2c_bus);
+            const uint8_t addr = 0x6E;
+
+            // Write POWERON_TIMER: 32-bit LE seconds to regs 0x38–0x3B
+            // (bits 31-30 of 0x3B must be 0 per PFalko implementation — mask with 0x7F)
+            uint32_t ws = wake_seconds;
+            uint8_t timer[5] = {0x38,
+                (uint8_t)( ws        & 0xFF),
+                (uint8_t)((ws >>  8) & 0xFF),
+                (uint8_t)((ws >> 16) & 0xFF),
+                (uint8_t)((ws >> 24) & 0x7F)};
+            bus->write(addr, timer, 5);
+
+            // Arm timer: write 0x0B to TIM_CFG (reg 0x3C)
+            uint8_t arm[2] = {0x3C, 0x0B};
+            bus->write(addr, arm, 2);
+
+            // Commit timer: write 0xA5 to TIM_KEY (reg 0x3D) before readback
+            // (PFalko sequence: arm → commit → verify. Writing 0x3D first may be required
+            // for 0x3C to reflect the armed state on readback.)
+            uint8_t commit[2] = {0x3D, 0xA5};
+            bus->write(addr, commit, 2);
+
+            // Fail-safe readback: if reg 0x3C != 0x0B, abort shutdown
+            uint8_t r = 0x3C, verify = 0;
+            bus->write(addr, &r, 1, false);
+            bus->read(addr, &verify, 1);
+            if (verify != 0x0B) {
+              ESP_LOGE("PMIC", "Timer arm FAILED (0x3C = 0x%02X, want 0x0B) — staying awake", verify);
+              return;  // abort — device stays awake
+            }
+
+            ESP_LOGI("PMIC", "Wake timer armed for %u seconds — issuing SYS_CMD_OFF", wake_seconds);
+            delay(120);
+
+            // Full PMIC shutdown — reg 0x0C = 0xA1 (SYS_CMD_OFF)
+            // ESP32 loses power immediately. Device reboots after wake_seconds.
+            uint8_t off[2] = {0x0C, 0xA1};
+            bus->write(addr, off, 2);
+
+            // Should not reach here
+            delay(500);
+            ESP_LOGE("PMIC", "SYS_CMD_OFF did not take effect — device still running");
+          }
+
+  # ── 90-second battery watchdog ──────────────────────────────────────────────
+  # Fires if the device is still awake on battery 90 seconds after boot.
+  # Replaces the safety guarantee previously provided by deep_sleep run_duration: 60s.
+  # If the normal -200 shutdown path completes, the device is already off and this
+  # script never triggers. If it hangs (WiFi timeout, stuck wait_until, etc.) this
+  # fires pmic_shutdown with a 15-minute retry timer so the battery isn't drained.
+  - id: battery_watchdog
+    mode: single
+    then:
+      - delay: 90s
+      - if:
+          condition:
+            lambda: 'return !id(usb_connected).state;'
+          then:
+            - lambda: 'ESP_LOGW("watchdog", "Battery wake >90s without shutdown — safety net firing");'
+            - script.execute:
+                id: pmic_shutdown
+                wake_seconds: 900  # 15 min retry
+
   - id: ota_led_flash
     mode: restart
     then:
@@ -606,10 +644,9 @@ binary_sensor:
               # ── USB connected ───────────────────────────────────────────────
               # ESPHome binary sensor deduplicates state — on_state only fires on
               # genuine transitions, so no manual guard is needed.
-              - lambda: 'ESP_LOGI("USB", "USB connected — preventing sleep");'
+              - lambda: 'ESP_LOGI("USB", "USB connected — PMIC shutdown suspended");'
               - script.stop: ota_led_flash
               - light.turn_off: leds
-              - deep_sleep.prevent: deep_sleep_ctrl
               - if:
                   condition:
                     lambda: 'return id(initial_display_done);'
@@ -618,36 +655,21 @@ binary_sensor:
                     - component.update: wifi_signal_db
                     - component.update: m5_color_screen
             else:
-              # ── USB disconnected → refresh display, then sleep ──────────────
+              # ── USB disconnected → refresh display, then PMIC shutdown ───────
               # Guard: only act after boot is complete. The -200 boot sequence
-              # handles sleep for devices that boot without USB; we must not race it.
+              # handles shutdown for devices that boot without USB; we must not race it.
               - if:
                   condition:
                     lambda: 'return id(initial_display_done);'
                   then:
-                    - lambda: 'ESP_LOGI("USB", "USB disconnected — refreshing then sleeping");'
+                    - lambda: 'ESP_LOGI("USB", "USB disconnected — refreshing then issuing PMIC shutdown");'
                     - component.update: battery_mv
                     - component.update: wifi_signal_db
                     - component.update: m5_color_screen
                     - delay: 20s   # wait for EPD panel refresh to complete (~15-19s)
-                    - lambda: |-
-                        {
-                          auto *bus = id(i2c_bus);
-                          const uint8_t addr = 0x6E;
-                          uint8_t r = 0x11, v = 0;
-                          bus->write(addr, &r, 1, false);
-                          bus->read(addr, &v, 1);
-                          uint8_t d[2] = {r, uint8_t(v & ~((1<<0) | (1<<3)))};
-                          bus->write(addr, d, 2);
-                          r = 0x06; v = 0;
-                          bus->write(addr, &r, 1, false);
-                          bus->read(addr, &v, 1);
-                          uint8_t d2[2] = {r, uint8_t(v & ~((1<<2) | (1<<3)))};
-                          bus->write(addr, d2, 2);
-                          ESP_LOGI("M5PM1", "EPD + SD + RGB LDO + Grove Boost disabled (USB disconnect)");
-                        }
-                    - deep_sleep.allow: deep_sleep_ctrl
-                    - deep_sleep.enter: deep_sleep_ctrl
+                    - script.execute:
+                        id: pmic_shutdown
+                        wake_seconds: !lambda 'return (uint32_t)(id(battery_sleep_mins).state * 60.0f);'
 
   - platform: gpio
     pin:
@@ -728,8 +750,8 @@ display:
       it.fill(id(color_white));
 
       // ── Low battery screen ────────────────────────────────────────────────
-      // Shown when battery_mv < 3450 mV at boot. Renders then device sleeps
-      // indefinitely — wake via Button B after charging.
+      // Shown when battery_mv < 3450 mV at boot. Renders then device issues PMIC
+      // full shutdown with 7-day timer. Wake via physical power button (S4) after charging.
       if (id(low_battery_triggered)) {
         it.filled_rectangle(0, 0, 600, 56, id(color_red));
         it.print(300, 12, id(font_large), id(color_white), TextAlign::TOP_CENTER, "BATTERY LOW");
@@ -739,8 +761,8 @@ display:
           it.printf(300, 215, id(font_small), id(color_black), TextAlign::TOP_CENTER, "%.0f%% remaining", id(battery_pct).state);
         }
         it.horizontal_line(60, 270, 480, id(color_black));
-        it.print(300, 290, id(font_main), id(color_black), TextAlign::TOP_CENTER, "Device has entered deep sleep.");
-        it.print(300, 325, id(font_small), id(color_black), TextAlign::TOP_CENTER, "Charge via USB-C, then press Button B to wake.");
+        it.print(300, 290, id(font_main), id(color_black), TextAlign::TOP_CENTER, "Device has powered off to preserve battery.");
+        it.print(300, 325, id(font_small), id(color_black), TextAlign::TOP_CENTER, "Charge via USB-C, then press the power button to wake.");
         return;
       }
 
@@ -930,15 +952,8 @@ text_sensor:
         default:                return {"Unknown"};
       }
 
-# ── Deep Sleep ────────────────────────────────────────────────────────────────
-# Wake cycle: boot → M5PM1 init → WiFi → sensors → display refresh → sleep
-# Button C (GPIO1) wakes the device for manual refresh or OTA updates.
-# For OTA: press Button B to wake, then flash within the 60s run_duration window.
-
-deep_sleep:
-  id: deep_sleep_ctrl
-  run_duration: 60s
-  sleep_duration: 20min
-  wakeup_pin:
-    number: GPIO9
-    inverted: true
+# ── Sleep / Wake ──────────────────────────────────────────────────────────────
+# Wake cycle: PMIC timer fires → cold boot → WiFi → sensors → display → PMIC shutdown
+# On-demand wake: press physical power button S4 (PMIC-side) → same cold boot sequence.
+# OTA: press S4, wait for blue boot flash, then initiate OTA from HA within ~60s.
+# (Button B / GPIO9 no longer wakes — ESP32 is fully powerless during PMIC shutdown.)

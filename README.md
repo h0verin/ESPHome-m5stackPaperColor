@@ -2,7 +2,7 @@
 
 An ESPHome configuration for the [M5Stack PaperColor](https://docs.m5stack.com/en/core/PaperColor) (SKU: C151), a 4" E Ink Spectra 6 display device based on the ESP32-S3.
 
-Integrates with Home Assistant to display a dashboard with outdoor temperature, room temperature/humidity, battery level, and WiFi signal strength. Designed for battery-powered use with deep sleep.
+Integrates with Home Assistant to display a dashboard with outdoor temperature, room temperature/humidity, battery level, and WiFi signal strength. Designed for battery-powered use with PMIC full-shutdown sleep (~9 day projected battery life).
 
 ![M5Stack PaperColor running ESPHome](PaperColorESPHome5a.jpg)
 
@@ -29,18 +29,18 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 - **E Ink Spectra 6 display** — color-coded header with title; outdoor temp as large centered hero value (from HA); centered room temp °F / humidity (local SHT40); footer with WiFi arc + signal %, last update timestamp, and MDI battery icon + charge % — all on a shared line
 - **Color-coded header** — header background changes color based on outdoor temperature: blue (≤64°F), green (≤75.5°F), orange (≤85.5°F), red (>85.5°F); header text is black on orange, white on all other colors; toggleable via HA switch (on by default). Orange is not a native Spectra E6 color — it is simulated via a 1px red/yellow checkerboard dither pattern
 - **Battery icon** — black when charging or above 20%, red at ≤20%; MDI icon tracks charge level and charging state
-- **Deep sleep** — configurable sleep cycle (default 20 min on battery), estimated **~8–11 day battery life** at the 20-min default (calculated from measured 5-min discharge data; not yet directly tested at 20-min intervals)
-- **USB-aware** — skips deep sleep when USB connected; the screen refreshes every 10 minutes by default (configurable via the "On USB Refresh Interval" slider in HA)
+- **PMIC full-shutdown sleep** — configurable sleep cycle (default 20 min on battery); projected **~9 day battery life** at the 20-min default. Uses M5PM1 internal wake timer (`SYS_CMD_OFF` + regs 0x38–0x3D) — cuts all power to ~92 µA standby, matching the product datasheet spec. ESP32 deep sleep was tested empirically and found ineffective (~5–10 mA sleep current regardless of sleep interval; ~1.8 day battery life). Wake is via PMIC timer (automatic) or physical power button S4.
+- **USB-aware** — stays awake when USB connected; the screen refreshes every 10 minutes by default (configurable via the "On USB Refresh Interval" slider in HA)
 - **Configurable intervals** — "On Battery Sleep Duration" and "On USB Refresh Interval" sliders (5–120 min, step 5) available in the HA device config; device must be awake for changes to be delivered
 - **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state; icon turns red at ≤20%. Calibrated from a measured full discharge run (Jun 2026, 43.93 hrs, 5-min intervals); piecewise lambda curve maps voltage to percentage using time-remaining fractions at each OCV threshold, rescaled so **3350 mV = 0%** (device shutdown) and **4160 mV = 100%** (resting OCV after full charge). Users see 0% when the low battery screen triggers rather than a mid-range value.
-- **Low battery screen** — when battery drops below 3350 mV at wake (~5–6% of raw capacity remaining, displayed as **0%** — the curve is intentionally rescaled so users see 0% at shutdown rather than a confusing mid-range value; ~1–1.5 hrs before the discharge cliff), renders a "BATTERY LOW" warning screen with charge percentage and instructions, then enters indefinite deep sleep (7-day timer, GPIO wake only). Press Button B after charging to resume normal operation. If your unit dies before triggering the screen, raise the threshold toward 3450 mV in the `-200` boot sequence lambda. A **"Simulate Low Battery"** switch in the HA device config lets you trigger this screen on demand for testing — it always resets to OFF on boot so it is safe to leave in place. To test: ensure the device is on battery power (USB unplugged), press Button B to wake it, toggle the switch ON in HA, then let the device complete its normal run and go back to sleep (e.g. 20 min). On the next timer wake it will detect the switch, render the warning screen, and enter a **7-day deep sleep**. Press Button B to wake it manually after testing — it will not wake on a timer until the 7 days expire. The switch has no effect while USB is connected.
+- **Low battery screen** — when battery drops below 3350 mV at wake (~5–6% of raw capacity remaining, displayed as **0%** — the curve is intentionally rescaled so users see 0% at shutdown rather than a confusing mid-range value; ~1–1.5 hrs before the discharge cliff), renders a "BATTERY LOW" warning screen with charge percentage and instructions, then issues PMIC full-shutdown with a 7-day timer. Press physical power button **S4** after charging to wake manually. If your unit dies before triggering the screen, raise the threshold toward 3450 mV in the `-200` boot sequence lambda. A **"Simulate Low Battery"** switch in the HA device config lets you trigger this screen on demand for testing — it always resets to OFF on boot so it is safe to leave in place. To test: ensure the device is on battery power (USB unplugged), wait for a normal timer wake, toggle the switch ON in HA before it shuts down, and on the next wake it will show the warning screen and issue a **7-day PMIC shutdown**. Press S4 to wake manually after testing. The switch has no effect while USB is connected.
 
 ![M5Stack PaperColor low battery screen](PaperColorESPHome4b.jpg)
 
 - **Home Assistant integration** — API encrypted, OTA updates, full sensor telemetry
 - **Smart boot refresh** — waits for valid sensor values before first display update; fallback refresh if HA is slow to respond
-- **3 physical buttons** — A (manual refresh), B (wake from sleep / OTA), C (spare)
-- **2× RGB LEDs** — brief blue flash on boot confirmation; blinking green when woken by Button B on battery power (indicates device is awake and ready for wireless OTA flash); LEDs turn off automatically after display update or when USB is connected
+- **3 physical buttons** — A (manual refresh while awake), B (no longer wakes from PMIC shutdown — use physical power button S4 on the back for manual wake), C (spare)
+- **2× RGB LEDs** — brief blue flash on every boot (all boots are cold power-on after PMIC shutdown); LEDs turn off automatically after display update or when USB is connected
 
 ---
 
@@ -59,39 +59,25 @@ E Ink's Spectra 6 platform is marketed as "vivid full color" or "7-color," but t
 However, additional colors can be **approximated via 1px checkerboard dithering** using `draw_pixel_at()` in the display lambda. This config uses a red+yellow 1px dither to simulate orange for the header band. At 150 PPI the dither pattern blends acceptably at normal viewing distance. This technique can extend the effective palette to approximate any color that can be blended from the six native colors — though results vary with viewing distance and color combination. Larger block sizes (2px, 4px) produce a visible checkerboard pattern and are generally not recommended.
 
 ### M5PM1 Sleep Power Optimization
-Before entering deep sleep, the config disables four PMIC-controlled power rails:
 
-| Register | Bit | Rail | Function |
-|---|---|---|---|
-| `0x11` GPIO output | 0 | EPD (`PY_EPD_EN`, PMIC GPIO0) | E-paper display power |
-| `0x11` GPIO output | 3 | SD card (`PY_SD_PWR_EN`, PMIC GPIO3) | SD card power |
-| `0x06` PWR_CFG | 2 | LDO 3.3V (`PY_RGB_PWR_EN`) | WS2812B RGB LED VDD |
-| `0x06` PWR_CFG | 3 | Boost 5V (`PY_GROVE_OUT_EN`) | Grove port 5V supply |
+This config uses **PMIC full-shutdown** (`SYS_CMD_OFF`, reg `0x0C = 0xA1`) for battery sleep. The M5PM1 internal wake timer (regs `0x38–0x3D`) is programmed with the sleep duration, then the PMIC cuts all power including the ESP32's 3V3\_L2 rail and all peripheral rails (EPD, SD, RGB LEDs, Grove). The PMIC self-wakes after the programmed interval, producing a full cold boot. This achieves the product datasheet's **92.53 µA standby** figure.
 
-Without the EPD rail disable, the PMIC boost converter continues driving ~15V EPD rails during sleep (~650µA). The RGB LDO adds a further ~1–4 mA leak from the WS2812B VDD staying live. The e-paper panel is bistable — it holds its image with the rail off. All rails are unconditionally re-enabled at the next boot via the priority 800 sequence before the display driver initializes.
+No individual rail disables are needed before shutdown — `SYS_CMD_OFF` handles everything atomically. All rails are re-enabled unconditionally at the next boot via the priority 800 sequence before the display driver initializes. The e-paper panel is bistatic — it holds its image with rails off.
 
-The rail disable only happens when going to sleep (battery-powered). On USB, the rails stay on so periodic interval refreshes continue to work. The boot sequence waits up to 20 seconds after triggering a display refresh before disabling the rails, ensuring the full ~15–19s Spectra E6 panel refresh completes first.
+**Why not ESP32 deep sleep:** Empirical discharge testing showed that ESP32 deep sleep provides essentially no power reduction on this hardware. Comparing 5-min and 30-min sleep intervals yielded only 1.11× difference in drain rate (should be ~6× if wake cycles dominated). Implied sleep current during ESP32 deep sleep is ~5–10 mA — the IT8951E EPD controller and PMIC monitoring circuits remain active regardless. Battery life with ESP32 deep sleep: ~1.8 days. With PMIC full-shutdown: projected ~9 days.
 
-### Sleep Architecture & Known Ceiling
+### Sleep Architecture
 
-This config uses the **ESP32's internal RTC timer** for deep sleep wake. When the ESP32 sleeps, the PMIC remains partially active — the JW5712 buck converter continues supplying the 3V3\_L2 rail to keep the ESP32 RTC alive. After all four rail disables above, estimated sleep current is **~200–500 µA**.
+This config uses **PMIC full-shutdown** rather than ESP32 deep sleep. The M5PM1 has its own internal wake timer (regs `0x38–0x3D`) — no external RTC is required. After programming the timer, `SYS_CMD_OFF` (reg `0x0C = 0xA1`) cuts all power. The device cold-boots after the configured interval.
 
-The M5Stack factory firmware ([M5PaperColor-UserDemo](https://github.com/m5stack/M5PaperColor-UserDemo)) takes a more aggressive approach: it programs the external **RTC (RX8130CE)** with an alarm, then issues a full **PMIC shutdown** (`SYS_CMD_OFF`, reg `0x0C = 0xA1`), cutting the 3V3\_L2 rail entirely. The RTC alarm fires → drives a PMIC wake pin → PMIC boots from scratch. This is how the product datasheet's **92.53 µA standby** figure is achieved.
+A **fail-safe readback** of reg `0x3C` after arming the timer aborts the shutdown if the arm didn't take — preventing a situation where the device powers off with no scheduled wake. A **90-second safety net** script also runs concurrently at boot: if the device is still on battery after 90 seconds (e.g. WiFi failed to connect), it issues a shutdown with a 15-minute retry timer.
 
-**Expected gain from implementing the factory approach (20-min sleep, 60-sec wake):**
-| Approach | Est. sleep current | Avg current | Battery life |
-|---|---|---|---|
-| This config (ESP32 deep sleep, all rails off) | ~350 µA | ~5–6 mA | ~210–250 hrs (~8–10 days) |
-| Factory approach (PMIC SYS\_CMD\_OFF) | ~92 µA | ~4.8–5.8 mA | ~215–260 hrs (~9–11 days) |
-
-The ~6 hour gain (~3.4%) is real but modest — because at 20-minute intervals, the 60-second wake period at ~150 mA dominates ~95% of the average current budget. Halving the sleep current moves the needle less than you'd expect.
-
-**Why this config doesn't implement it:** The PMIC `SYS_CMD_OFF` command cuts ESP32 power immediately with no cleanup window, requiring the wake timer to be handled entirely by the external RTC rather than the ESP32's own RTC — which means stepping outside ESPHome's `deep_sleep` component entirely. The implementation would require direct I2C writes to the RX8130CE to set an alarm, PMIC GPIO wake-pin configuration, and careful ordering to avoid flash corruption if power is cut mid-write. For a ~6 hour improvement on a ~7 day battery this risk/complexity trade-off isn't warranted here, but the path is clear for anyone wanting to take it further — the external RTC is already on the I2C bus at `0x32`.
+`safe_mode:` is also enabled: if the device crashes repeatedly (10 failed boots), it enters a 3-minute OTA recovery window so firmware can be updated before it tries again.
 
 ### Low Battery Screen & Threshold
 The low battery warning triggers at **3350 mV** (displayed as **0%** on this device's calibrated discharge curve), chosen to give approximately 1–1.5 hours of reserve above the measured discharge cliff at ~3300 mV. The calibration curve is rescaled so the shutdown threshold is 0% — users see 0% when the screen triggers rather than a confusing mid-range percentage. Below 3300 mV the discharge rate jumps from ~20–30 mV/hr to 100–200 mV/hr, so the device can die quickly once past that point. The 3350 mV threshold was calibrated from a full discharge run (Jun 2026) on a 1250 mAh cell at 20-min sleep intervals. Note that the percentage shown on the low battery screen reflects this device's specific LiPo calibration curve — the threshold mV value is what matters for tuning, not the displayed percentage.
 
-After rendering the warning screen the device enters a 7-day deep sleep with all four power rails disabled (EPD, SD, RGB, Grove). It will not wake on a timer — only Button B (GPIO9) wakes it. The `Simulate Low Battery` switch in HA is safe to leave in permanently: `restore_mode: ALWAYS_OFF` means it resets to OFF on every boot regardless, so it cannot cause a boot loop. It has no effect while USB is connected.
+After rendering the warning screen the device issues PMIC full-shutdown with a 7-day timer. It will not wake on a timer until those 7 days expire — press physical power button **S4** to wake manually after charging. The `Simulate Low Battery` switch in HA is safe to leave in permanently: `restore_mode: ALWAYS_OFF` means it resets to OFF on every boot regardless, so it cannot cause a boot loop. It has no effect while USB is connected.
 
 If the device dies before showing the screen (stale display, no warning), raise the threshold to 3400–3450 mV. If it triggers too early, lower toward 3320 mV — but do not go below 3310 mV without further discharge data.
 
@@ -101,13 +87,17 @@ The Spectra-E6 panel uses **inverted BUSY pin polarity** (HIGH = ready, LOW = bu
 ### I2C Pin Mapping
 `SDA=GPIO3`, `SCL=GPIO2` — confirmed from M5GFX source and factory firmware `hal.h`. GPIO3 is an ESP32-S3 strapping pin; the ESPHome warning about this is expected and safe to ignore on this hardware.
 
-### Deep Sleep & OTA
-The device sleeps for 20 minutes between refreshes by default (configurable via the "On Battery Sleep Duration" slider in HA). To perform OTA updates:
-1. Press **Button B** (GPIO9) to wake the device
-2. The **RGB LEDs will blink green** — confirming the device is awake and ready to accept a wireless flash (blue flash = normal timer wake; blinking green = Button B wake)
-3. The device stays awake for **60 seconds** — initiate OTA flash within this window
-4. LEDs turn off automatically once the display has updated (~30s); the device remains flashable for the rest of the 60s window
-5. The display auto-refreshes on every wake (no need to press Button A separately)
+### Sleep & OTA
+
+The device sleeps for 20 minutes between refreshes by default (configurable via the "On Battery Sleep Duration" slider in HA). During PMIC full-shutdown the ESP32 is completely powerless — **Button B (GPIO9) cannot wake it**.
+
+To perform OTA updates on battery:
+1. Press the **physical power button S4** (on the back of the device, PMIC-side) to trigger a cold boot
+2. The **RGB LEDs will flash blue briefly** — confirming the device is awake
+3. Initiate OTA from Home Assistant within the boot window — the device stays awake while the display is refreshing (~45–80s depending on WiFi and sensor availability), then issues PMIC shutdown
+4. If USB is connected, the device stays awake indefinitely — OTA can be performed at any time
+
+If the device is stuck (boot loop or unresponsive), `safe_mode:` handles recovery automatically: after 10 failed boots it opens a 3-minute OTA window. The device can also always be flashed via USB-C as a last resort.
 
 ---
 
@@ -186,7 +176,7 @@ After first flash, all subsequent updates can be done OTA.
 | GPIO3 | I2C SDA |
 | GPIO4 | Grove I |
 | GPIO5 | Grove O |
-| GPIO9 | Button B (wake) |
+| GPIO9 | Button B (spare — cannot wake from PMIC shutdown; use S4 power button) |
 | GPIO10 | Button A |
 | GPIO11 | EPD BUSY |
 | GPIO12 | EPD RST |
@@ -207,7 +197,7 @@ After first flash, all subsequent updates can be done OTA.
 
 - **[Anthropic's Claude Code](https://claude.ai/claude-code)** — this project was developed interactively with Claude Code on real hardware. The PMIC reverse-engineering, display driver research, boot sequencing, and ESPHome integration were all developed and debugged through an AI-assisted session.
 
-- **[PFalko/m5stack-papercolor-esphome](https://github.com/PFalko/m5stack-papercolor-esphome)** — independent ESPHome implementation for the same device. Several M5PM1 PMIC improvements in this config were informed by their reverse-engineering work, specifically: the `HOLD_CFG` power-hold register sequence, enabling the 3.3V LDO rail, disabling hardware button reset functions, the 5-reading median filter for battery voltage, and pulling the EPD and SD rails LOW via register `0x11` before deep sleep to eliminate unnecessary boost converter draw (~650µA saving).
+- **[PFalko/m5stack-papercolor-esphome](https://github.com/PFalko/m5stack-papercolor-esphome)** — independent ESPHome implementation for the same device. Several M5PM1 PMIC improvements in this config were informed by their reverse-engineering work, specifically: the `HOLD_CFG` power-hold register sequence, enabling the 3.3V LDO rail, disabling hardware button reset functions, the 5-reading median filter for battery voltage, and the PMIC full-shutdown register sequence (regs 0x38–0x3D + `SYS_CMD_OFF`) confirming that the M5PM1 internal wake timer eliminates the need for the external RTC.
 
 - **[M5Stack factory firmware](https://github.com/m5stack/M5PaperColor-UserDemo)** — original HAL source used to derive the M5PM1 EPD power rail init sequence.
 
