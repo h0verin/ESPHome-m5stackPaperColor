@@ -80,10 +80,13 @@ esphome:
             // Disable PMIC I2C idle-sleep — keeps PMIC responsive during shutdown sequence
             { uint8_t d[2] = {0x09, 0x00}; bus->write(addr, d, 2); }
 
-            // Button config — disable hardware reset functions on physical buttons
-            // to prevent unintended resets (regs 0x49 and 0x4A)
-            { uint8_t d[2] = {0x49, 0x00}; bus->write(addr, d, 2); }
-            { uint8_t d[2] = {0x4A, 0x00}; bus->write(addr, d, 2); }
+            // Button config — set SINGLE_RST_DIS (0x49 bit0) and DOUBLE_OFF_DIS (0x4A bit0)
+            // to prevent PMIC hardware single-press reset / double-press power-off while running.
+            // Read-modify-write to preserve other bits (PFalko pattern).
+            { uint8_t r = 0x49, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
+              uint8_t d[2] = {0x49, uint8_t(v | 0x01)}; bus->write(addr, d, 2); }
+            { uint8_t r = 0x4A, v = 0; bus->write(addr, &r, 1, false); bus->read(addr, &v, 1);
+              uint8_t d[2] = {0x4A, uint8_t(v | 0x01)}; bus->write(addr, d, 2); }
 
             delay(500);
             ESP_LOGI("M5PM1", "EPD power rail enabled");
