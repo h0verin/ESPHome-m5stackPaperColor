@@ -6,6 +6,9 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 
 ![M5Stack PaperColor running ESPHome](PaperColorESPHome5a.jpg)
 
+![M5Stack PaperColor with dithered orange header](PaperColorESPHome5c.jpg)
+*Orange header rendered via 1px red/yellow checkerboard dither — Spectra E6 has no native orange channel*
+
 ---
 
 ## Hardware
