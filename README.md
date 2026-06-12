@@ -202,6 +202,11 @@ I've designed a 3D-printed display stand for the M5Stack PaperColor, which is av
 
 **[M5Stack Paper Color e-paper Display Stand](https://makerworld.com/en/models/2921519-m5stack-paper-color-e-paper-display-stand#profileId-3269093)**
 
+<table><tr>
+<td><img src="StandFront.jpeg" alt="Display stand front view"></td>
+<td><img src="StandRear.jpeg" alt="Display stand rear view"></td>
+</tr></table>
+
 ---
 
 ## Credits
