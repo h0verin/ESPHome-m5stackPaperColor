@@ -2,7 +2,7 @@
 
 An ESPHome configuration for the [M5Stack PaperColor](https://docs.m5stack.com/en/core/PaperColor) (SKU: C151), a 4" E Ink Spectra 6 display device based on the ESP32-S3.
 
-Integrates with Home Assistant to display a dashboard with outdoor temperature, room temperature/humidity, battery level, and WiFi signal strength. Designed for battery-powered use with PMIC full-shutdown sleep (~9 day projected battery life).
+Integrates with Home Assistant to display a dashboard with outdoor temperature, room temperature/humidity, battery level, and WiFi signal strength. Designed for battery-powered use with PMIC full-shutdown sleep (~10 day measured battery life at the 20-min default interval).
 
 ![M5Stack PaperColor running ESPHome](PaperColorESPHome5a.jpg)
 
@@ -32,7 +32,7 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 - **E Ink Spectra 6 display** — color-coded header with title; outdoor temp as large centered hero value (from HA); centered room temp °F / humidity (local SHT40); footer with WiFi arc + signal %, last update timestamp, and MDI battery icon + charge % — all on a shared line
 - **Color-coded header** — header background changes color based on outdoor temperature: blue (≤64°F), green (≤75.5°F), orange (≤85.5°F), red (>85.5°F); header text is black on orange, white on all other colors; toggleable via HA switch (on by default). Orange is not a native Spectra E6 color — it is simulated via a 1px red/yellow checkerboard dither pattern
 - **Battery icon** — black when charging or above 20%, red at ≤20%; MDI icon tracks charge level and charging state
-- **PMIC full-shutdown sleep** — configurable sleep cycle (default 20 min on battery); projected **~9 day battery life** at the 20-min default. Uses M5PM1 internal wake timer (`SYS_CMD_OFF` + regs 0x38–0x3D) — cuts all power to ~92 µA standby, matching the product datasheet spec. ESP32 deep sleep was tested empirically and found ineffective (~5–10 mA sleep current regardless of sleep interval; ~1.8 day battery life). Wake is via PMIC timer (automatic) or physical power button S4.
+- **PMIC full-shutdown sleep** — configurable sleep cycle (default 20 min on battery); measured **~10 day battery life** at the 20-min default (~15 days at 30-min intervals). Uses M5PM1 internal wake timer (`SYS_CMD_OFF` + regs 0x38–0x3D) — cuts all power to ~92 µA standby, matching the product datasheet spec. ESP32 deep sleep was tested empirically and found ineffective (~5–10 mA sleep current regardless of sleep interval; ~1.8 day battery life). Wake is via PMIC timer (automatic) or physical power button S4.
 - **USB-aware** — stays awake when USB connected; the screen refreshes every 10 minutes by default (configurable via the "On USB Refresh Interval" slider in HA)
 - **Configurable intervals** — "On Battery Sleep Duration" and "On USB Refresh Interval" sliders (5–120 min, step 5) available in the HA device config; device must be awake for changes to be delivered
 - **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state; icon turns red at ≤20%. Calibrated from a measured full discharge run (Jun 2026, 43.93 hrs, 5-min intervals); piecewise lambda curve maps voltage to percentage using time-remaining fractions at each OCV threshold, rescaled so **3350 mV = 0%** (device shutdown) and **4160 mV = 100%** (resting OCV after full charge). Users see 0% when the low battery screen triggers rather than a mid-range value.
@@ -67,7 +67,7 @@ This config uses **PMIC full-shutdown** (`SYS_CMD_OFF`, reg `0x0C = 0xA1`) for b
 
 No individual rail disables are needed before shutdown — `SYS_CMD_OFF` handles everything atomically. All rails are re-enabled unconditionally at the next boot via the priority 800 sequence before the display driver initializes. The e-paper panel is bistatic — it holds its image with rails off.
 
-**Why not ESP32 deep sleep:** Empirical discharge testing showed that ESP32 deep sleep provides essentially no power reduction on this hardware. Comparing 5-min and 30-min sleep intervals yielded only 1.11× difference in drain rate (should be ~6× if wake cycles dominated). Implied sleep current during ESP32 deep sleep is ~5–10 mA — the IT8951E EPD controller and PMIC monitoring circuits remain active regardless. Battery life with ESP32 deep sleep: ~1.8 days. With PMIC full-shutdown: projected ~9 days.
+**Why not ESP32 deep sleep:** Empirical discharge testing showed that ESP32 deep sleep provides essentially no power reduction on this hardware. Comparing 5-min and 30-min sleep intervals yielded only 1.11× difference in drain rate (should be ~6× if wake cycles dominated). Implied sleep current during ESP32 deep sleep is ~5–10 mA — the IT8951E EPD controller and PMIC monitoring circuits remain active regardless. Battery life with ESP32 deep sleep: ~1.8 days. With PMIC full-shutdown: **~10 days measured** at the 20-min default interval (~15 days at 30-min intervals), based on discharge testing Jun 2026.
 
 ### Sleep Architecture
 
