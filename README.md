@@ -196,6 +196,14 @@ After first flash, all subsequent updates can be done OTA.
 
 ---
 
+## Display Stand
+
+I've designed a 3D-printed display stand for the M5Stack PaperColor, which is available on MakerWorld:
+
+**[M5Stack Paper Color e-paper Display Stand](https://makerworld.com/en/models/2921519-m5stack-paper-color-e-paper-display-stand#profileId-3269093)**
+
+---
+
 ## Credits
 
 - **[Anthropic's Claude Code](https://claude.ai/claude-code)** — this project was developed interactively with Claude Code on real hardware. The PMIC reverse-engineering, display driver research, boot sequencing, and ESPHome integration were all developed and debugged through an AI-assisted session.
