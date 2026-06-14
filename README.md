@@ -4,9 +4,9 @@ An ESPHome configuration for the [M5Stack PaperColor](https://docs.m5stack.com/e
 
 Integrates with Home Assistant to display a dashboard with outdoor temperature, room temperature/humidity, battery level, and WiFi signal strength. Designed for battery-powered use with PMIC full-shutdown sleep (~10 day measured battery life at the 20-min default interval).
 
-![M5Stack PaperColor running ESPHome](PaperColorESPHome5a.jpg)
+![M5Stack PaperColor running ESPHome](images/PaperColorESPHome5a.jpg)
 
-![M5Stack PaperColor with dithered orange header](PaperColorESPHome5c.jpg)
+![M5Stack PaperColor with dithered orange header](images/PaperColorESPHome5c.jpg)
 *Orange header rendered via 1px red/yellow checkerboard dither — Spectra E6 has no native orange channel*
 
 ---
@@ -38,7 +38,7 @@ Integrates with Home Assistant to display a dashboard with outdoor temperature, 
 - **Battery monitoring** — voltage and percentage from M5PM1 PMIC via I2C; MDI icon varies by charge level and charging state; icon turns red at ≤20%. Calibrated from a measured full discharge run (Jun 2026, 43.93 hrs, 5-min intervals); piecewise lambda curve maps voltage to percentage using time-remaining fractions at each OCV threshold, rescaled so **3350 mV = 0%** (device shutdown) and **4160 mV = 100%** (resting OCV after full charge). Users see 0% when the low battery screen triggers rather than a mid-range value.
 - **Low battery screen** — when battery drops below 3350 mV at wake (~5–6% of raw capacity remaining, displayed as **0%** — the curve is intentionally rescaled so users see 0% at shutdown rather than a confusing mid-range value; ~1–1.5 hrs before the discharge cliff), renders a "BATTERY LOW" warning screen with charge percentage and instructions, then issues PMIC full-shutdown with a 7-day timer. Press physical power button **S4** after charging to wake manually. If your unit dies before triggering the screen, raise the threshold toward 3450 mV in the `-200` boot sequence lambda. A **"Simulate Low Battery"** switch in the HA device config lets you trigger this screen on demand for testing — it always resets to OFF on boot so it is safe to leave in place. To test: ensure the device is on battery power (USB unplugged), wait for a normal timer wake, toggle the switch ON in HA before it shuts down, and on the next wake it will show the warning screen and issue a **7-day PMIC shutdown**. Press S4 to wake manually after testing. The switch has no effect while USB is connected.
 
-![M5Stack PaperColor low battery screen](PaperColorESPHome5b.jpg)
+![M5Stack PaperColor low battery screen](images/PaperColorESPHome5b.jpg)
 
 - **Home Assistant integration** — API encrypted, OTA updates, full sensor telemetry
 - **Smart boot refresh** — waits for valid sensor values before first display update; fallback refresh if HA is slow to respond
@@ -204,8 +204,8 @@ I've designed a 3D-printed display stand for the M5Stack PaperColor, available o
 - **[Printables](https://www.printables.com/model/1753377-m5stack-paper-color-e-paper-display-stand)** — M5Stack Paper Color e-paper Display Stand
 
 <table><tr>
-<td><img src="StandFront.jpeg" alt="Display stand front view"></td>
-<td><img src="StandRear.jpeg" alt="Display stand rear view"></td>
+<td><img src="images/StandFront.jpeg" alt="Display stand front view"></td>
+<td><img src="images/StandRear.jpeg" alt="Display stand rear view"></td>
 </tr></table>
 
 ---
