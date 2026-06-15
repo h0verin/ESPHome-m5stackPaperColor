@@ -155,7 +155,7 @@ esphome:
                   then:
                     - lambda: 'id(initial_display_done) = true;'
                     - logger.log: "Sensors ready — marking initial display done before refresh"
-                    - safe_mode.mark_safe:
+                    - safe_mode_comp.mark_safe:
               - component.update: m5_color_screen
               - script.stop: ota_led_flash
               - light.turn_off: leds
@@ -215,6 +215,7 @@ api:
     key: !secret papercolor_api_key
 
 safe_mode:
+  id: safe_mode_comp
 
 ota:
   - platform: esphome
