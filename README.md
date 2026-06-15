@@ -102,6 +102,16 @@ To perform OTA updates on battery:
 
 If the device is stuck (boot loop or unresponsive), `safe_mode:` handles recovery automatically: after 10 failed boots it opens a 3-minute OTA window. The device can also always be flashed via USB-C as a last resort.
 
+### OTA Rollback and PMIC Shutdown
+
+ESP32's OTA system marks new firmware "pending" after a flash and requires a successful boot to reach a "mark valid" call before a rollback timer fires. Normally ESPHome's `safe_mode:` component handles this automatically — it calls `esp_ota_mark_app_valid_cancel_rollback()` after 60 seconds of stable operation ("Successful after: 60s" in logs).
+
+On this device, PMIC full-shutdown fires at ~40–50 seconds into a normal battery boot — before `safe_mode`'s 60s timer. Without intervention, **every OTA would roll back to the previous firmware on the first battery wake**, silently and with no error visible in logs.
+
+The fix: `esp_ota_mark_app_valid_cancel_rollback()` is called explicitly in the normal boot path after sensors are confirmed ready (~25–30s into boot, before the display update). This fires well before PMIC shutdown, cancelling the pending rollback. `safe_mode:` remains enabled for crash loop recovery (10 failed boots triggers a 3-minute OTA window) — but the explicit call is what prevents the silent rollback on every normal battery wake.
+
+This problem only affects battery wakes with PMIC full-shutdown. USB-connected flashes are unaffected (device stays awake past 60s, `safe_mode` fires naturally).
+
 ---
 
 ## ESPHome Requirements
