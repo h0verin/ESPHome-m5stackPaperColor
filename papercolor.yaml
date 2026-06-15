@@ -849,7 +849,7 @@ display:
       // Updated timestamp (center)
       if (id(ha_time).now().is_valid()) {
         char time_buf[32];
-        id(ha_time).now().strftime(time_buf, sizeof(time_buf), "Updated %I:%M %p");
+        id(ha_time).now().strftime(time_buf, sizeof(time_buf), "Updated %a %I:%M %p");
         it.print(300, 362, id(font_small), id(color_black), TextAlign::TOP_CENTER, time_buf);
       }
 
