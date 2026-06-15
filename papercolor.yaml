@@ -155,7 +155,12 @@ esphome:
                   then:
                     - lambda: 'id(initial_display_done) = true;'
                     - logger.log: "Sensors ready — marking initial display done before refresh"
-                    - safe_mode.mark_safe:
+              - lambda: |-
+                  // Cancel OTA rollback explicitly — PMIC shutdown fires at ~37s, before
+                  // safe_mode's 60s "Successful after" timer, so without this every OTA
+                  // would roll back on the first battery wake.
+                  esp_ota_mark_app_valid_cancel_rollback();
+                  ESP_LOGI("OTA", "Boot marked valid — OTA rollback cancelled");
               - component.update: m5_color_screen
               - script.stop: ota_led_flash
               - light.turn_off: leds
