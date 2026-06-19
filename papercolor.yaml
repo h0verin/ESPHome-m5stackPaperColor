@@ -108,12 +108,14 @@ esphome:
     - priority: -200
       then:
         - delay: 25s     # display hardware init takes ~19s; wait for it to complete
+        - lambda: 'id(waiting_for_sensors) = true;'
         - wait_until:
             condition:
               and:
                 - lambda: 'return id(ha_outdoor_temp).has_state();'
                 - lambda: 'return !isnan(id(local_temp).state);'
             timeout: 60s  # give up and refresh with whatever we have after 60s
+        - lambda: 'id(waiting_for_sensors) = false;'
         - component.update: reset_reason
         - component.update: build_date_sensor
         - component.update: battery_mv
@@ -161,30 +163,88 @@ esphome:
                   // would roll back on the first battery wake.
                   esp_ota_mark_app_valid_cancel_rollback();
                   ESP_LOGI("OTA", "Boot marked valid — OTA rollback cancelled");
-              - component.update: m5_color_screen
-              - script.stop: ota_led_flash
-              - light.turn_off: leds
-              # 20s covers: 150ms WS2812 off-frame settle + up to ~19s Spectra E6 full refresh.
-              # The EPD component.update is asynchronous — the panel refresh runs in the background
-              # and takes 15–19s. We must not cut the EPD power rail until it is complete.
-              - delay: 20s
-              - lambda: 'id(last_usb_refresh_ms) = millis();'
+              - lambda: |-
+                  // Unconditional diagnostic — always logs what the device currently has
+                  // stored/read for the overnight feature, regardless of whether the quiet
+                  // path triggers. Without this, a "false" outcome is silent and there is no
+                  // way to tell from logs alone whether settings failed to persist, the window
+                  // math is wrong, or a wake simply landed outside the window as expected.
+                  auto t = id(ha_time).now();
+                  ESP_LOGD("sleep", "Overnight check: enabled=%s start=%d end=%d hour=%d (valid=%s) usb=%s",
+                           id(overnight_mode).state ? "true" : "false",
+                           (int)id(overnight_start_hour).state,
+                           (int)id(overnight_end_hour).state,
+                           t.hour, t.is_valid() ? "true" : "false",
+                           id(usb_connected).state ? "true" : "false");
               - if:
                   condition:
-                    lambda: 'return id(usb_connected).state;'
+                    # ── Overnight quiet window check ──────────────────────────────────
+                    # On battery, when enabled, computes whether we're inside the
+                    # configured quiet window and — if so — how many seconds remain
+                    # until it ends. Sets overnight_wake_seconds and returns true only
+                    # when the quiet path should be taken (skip display + sleep until
+                    # window end). See project memory for the edge-case rationale
+                    # (midnight-spanning window, strict boundary, max cap, min floor,
+                    # start==end disables the feature).
+                    lambda: |-
+                      if (id(usb_connected).state) return false;
+                      if (!id(overnight_mode).state) return false;
+                      auto t = id(ha_time).now();
+                      if (!t.is_valid()) return false;
+                      int sh = (int)id(overnight_start_hour).state;
+                      int eh = (int)id(overnight_end_hour).state;
+                      if (sh == eh) return false;  // zero-width window = disabled
+                      int ch = t.hour;
+                      bool in_window = (sh < eh) ? (ch >= sh && ch < eh) : (ch >= sh || ch < eh);
+                      if (!in_window) return false;
+
+                      uint32_t normal_s = (uint32_t)(id(battery_sleep_mins).state * 60.0f);
+                      int hours_until = ((eh - ch) % 24 + 24) % 24;          // always 1..23 here
+                      uint32_t secs_until_end = (uint32_t)hours_until * 3600 - t.minute * 60 - t.second;
+                      int window_hours = ((eh - sh) % 24 + 24) % 24;        // always 1..23 here
+                      uint32_t cap = (uint32_t)window_hours * 3600;
+                      if (secs_until_end > cap) secs_until_end = cap;        // defensive clamp
+
+                      if (secs_until_end < normal_s) {
+                        ESP_LOGI("sleep", "Overnight window active but only %us remain — using normal interval", secs_until_end);
+                        return false;  // min-floor guard: not worth a special short cycle
+                      }
+
+                      id(overnight_wake_seconds) = secs_until_end;
+                      ESP_LOGI("sleep", "OVERNIGHT SLEEP: hour=%d window=%d-%d wake_in=%us (cap=%us)", ch, sh, eh, secs_until_end, cap);
+                      return true;
                   then:
-                    # USB connected — stay awake. Interval refresh handles periodic updates.
-                    # Rails must remain on for display updates without rebooting.
-                    - logger.log: "USB connected — staying awake (no PMIC shutdown)"
-                  else:
-                    # ── Battery mode: PMIC full shutdown ────────────────────────────
-                    # SYS_CMD_OFF cuts all rails — no need to disable them individually.
-                    # Disabling rails before shutdown would leave them off if the fail-safe
-                    # aborts shutdown, degrading the device without powering it down.
-                    - lambda: 'ESP_LOGI("sleep", "PMIC shutdown — wake in %.0f min", id(battery_sleep_mins).state);'
+                    # ── Overnight quiet path: skip display refresh entirely ──────────
+                    - script.stop: ota_led_flash
+                    - light.turn_off: leds
                     - script.execute:
                         id: pmic_shutdown
-                        wake_seconds: !lambda 'return (uint32_t)(id(battery_sleep_mins).state * 60.0f);'
+                        wake_seconds: !lambda 'return id(overnight_wake_seconds);'
+                  else:
+                    - component.update: m5_color_screen
+                    - script.stop: ota_led_flash
+                    - light.turn_off: leds
+                    # 20s covers: 150ms WS2812 off-frame settle + up to ~19s Spectra E6 full refresh.
+                    # The EPD component.update is asynchronous — the panel refresh runs in the background
+                    # and takes 15–19s. We must not cut the EPD power rail until it is complete.
+                    - delay: 20s
+                    - lambda: 'id(last_usb_refresh_ms) = millis();'
+                    - if:
+                        condition:
+                          lambda: 'return id(usb_connected).state;'
+                        then:
+                          # USB connected — stay awake. Interval refresh handles periodic updates.
+                          # Rails must remain on for display updates without rebooting.
+                          - logger.log: "USB connected — staying awake (no PMIC shutdown)"
+                        else:
+                          # ── Battery mode: PMIC full shutdown ────────────────────────────
+                          # SYS_CMD_OFF cuts all rails — no need to disable them individually.
+                          # Disabling rails before shutdown would leave them off if the fail-safe
+                          # aborts shutdown, degrading the device without powering it down.
+                          - lambda: 'ESP_LOGI("sleep", "PMIC shutdown — wake in %.0f min", id(battery_sleep_mins).state);'
+                          - script.execute:
+                              id: pmic_shutdown
+                              wake_seconds: !lambda 'return (uint32_t)(id(battery_sleep_mins).state * 60.0f);'
 
 # ── Globals ───────────────────────────────────────────────────────────────────
 
@@ -198,6 +258,14 @@ globals:
     restore_value: false
     initial_value: '0'
   - id: low_battery_triggered
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: overnight_wake_seconds
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: waiting_for_sensors
     type: bool
     restore_value: false
     initial_value: 'false'
@@ -440,8 +508,13 @@ sensor:
       then:
         - if:
             condition:
-              # Only trigger if display init is done (>25s) and initial render didn't have data
-              lambda: 'return !id(initial_display_done) && millis() > 25000;'
+              # Only trigger if the -200 boot sequence's wait_until has already given up
+              # (timed out) and rendered without this sensor — NOT merely "25s have elapsed,"
+              # since that can be true while wait_until is still actively polling, racing its
+              # own component.update call (confirmed bug: "Display already in state UPDATE",
+              # Jun 2026 — outdoor temp arrived ~175ms after HA API connect, landing inside the
+              # wait_until poll window instead of after a genuine timeout).
+              lambda: 'return !id(initial_display_done) && !id(waiting_for_sensors) && millis() > 25000;'
             then:
               - lambda: 'id(initial_display_done) = true;'
               - logger.log: "Outdoor temp arrived after timeout — refreshing display"
@@ -486,6 +559,16 @@ script:
     then:
       - lambda: |-
           {
+            // Force any pending preference writes (HA-changed numbers/switches with
+            // restore_value/restore_mode) to flash now. ESPHome's preferences component
+            // batches writes on a periodic background flush — on this device the awake
+            // window is only ~30-90s before SYS_CMD_OFF cuts ALL power, which is not
+            // guaranteed to be long enough for that periodic flush to have run yet.
+            // Confirmed Jun 2026: settings changed via HA, then lost, when a PMIC shutdown
+            // fired ~32s later with no preferences flush log observed in between.
+            global_preferences->sync();
+            ESP_LOGI("PMIC", "Preferences flushed to flash before shutdown");
+
             auto *bus = id(i2c_bus);
             const uint8_t addr = 0x6E;
 
@@ -596,6 +679,31 @@ number:
     icon: "mdi:sleep"
     entity_category: config
 
+  # Overnight quiet window — see "Overnight Quiet Mode" switch below.
+  - platform: template
+    name: "Overnight Begin Hour"
+    id: overnight_start_hour
+    min_value: 0
+    max_value: 23
+    step: 1
+    initial_value: 1
+    optimistic: true
+    restore_value: true
+    icon: "mdi:clock-start"
+    entity_category: config
+
+  - platform: template
+    name: "Overnight End Hour"
+    id: overnight_end_hour
+    min_value: 0
+    max_value: 23
+    step: 1
+    initial_value: 6
+    optimistic: true
+    restore_value: true
+    icon: "mdi:clock-end"
+    entity_category: config
+
 
 # ── Switches ──────────────────────────────────────────────────────────────────
 switch:
@@ -615,6 +723,18 @@ switch:
     id: simulate_low_battery
     icon: "mdi:battery-alert"
     restore_mode: ALWAYS_OFF
+    optimistic: true
+    entity_category: config
+
+  # Overnight quiet window — when enabled and on battery, skips the display
+  # refresh entirely during Overnight Begin Hour..Overnight End Hour and
+  # sleeps directly until the window ends, instead of waking every
+  # On Battery Sleep Duration interval. Off by default.
+  - platform: template
+    name: "Overnight Quiet Mode"
+    id: overnight_mode
+    icon: "mdi:weather-night"
+    restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
     entity_category: config
 
