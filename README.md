@@ -217,14 +217,20 @@ After first flash, all subsequent updates can be done OTA.
 
 ## Display Stand
 
-I've designed a 3D-printed display stand for the M5Stack PaperColor, available on MakerWorld and Printables:
+I've designed 3D-printed display stands for the M5Stack PaperColor, available on MakerWorld and Printables:
 
 - **[MakerWorld](https://makerworld.com/en/models/2921519-m5stack-paper-color-e-paper-display-stand#profileId-3269093)** — M5Stack Paper Color e-paper Display Stand
 - **[Printables](https://www.printables.com/model/1753377-m5stack-paper-color-e-paper-display-stand)** — M5Stack Paper Color e-paper Display Stand
 
+A portrait-orientation variant is also available:
+
+- **[MakerWorld](https://makerworld.com/en/models/2976227-m5stack-paper-color-e-paper-display-stand-portrait#profileId-3338615)** — M5Stack Paper Color e-paper Display Stand (Portrait)
+- **[Printables](https://www.printables.com/model/1763493-m5stack-paper-color-e-paper-display-stand-portrait)** — M5Stack Paper Color e-paper Display Stand (Portrait)
+
 <table><tr>
 <td><img src="images/StandFront.jpeg" alt="Display stand front view"></td>
 <td><img src="images/StandRear.jpeg" alt="Display stand rear view"></td>
+<td><img src="images/PortraitStandFront.jpeg" alt="Portrait display stand front view"></td>
 </tr></table>
 
 ---
