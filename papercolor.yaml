@@ -836,7 +836,7 @@ binary_sensor:
 
 light:
   - platform: esp32_rmt_led_strip
-    rgb_order: GRB
+    channel_colors: GRB
     pin: GPIO21
     num_leds: 2
     chipset: WS2812
