@@ -206,12 +206,12 @@ esphome:
                       if (secs_until_end > cap) secs_until_end = cap;        // defensive clamp
 
                       if (secs_until_end < normal_s) {
-                        ESP_LOGI("sleep", "Overnight window active but only %us remain — using normal interval", secs_until_end);
+                        ESP_LOGI("sleep", "Overnight window active but only %us remain — using normal interval", (unsigned int)secs_until_end);
                         return false;  // min-floor guard: not worth a special short cycle
                       }
 
                       id(overnight_wake_seconds) = secs_until_end;
-                      ESP_LOGI("sleep", "OVERNIGHT SLEEP: hour=%d window=%d-%d wake_in=%us (cap=%us)", ch, sh, eh, secs_until_end, cap);
+                      ESP_LOGI("sleep", "OVERNIGHT SLEEP: hour=%d window=%d-%d wake_in=%us (cap=%us)", ch, sh, eh, (unsigned int)secs_until_end, (unsigned int)cap);
                       return true;
                   then:
                     # ── Overnight quiet path: skip display refresh entirely ──────────
@@ -273,7 +273,7 @@ globals:
 esp32:
   board: esp32-s3-devkitc-1
   variant: esp32s3
-  toolchain: platformio
+  toolchain: esp-idf
   framework:
     type: arduino
 
@@ -602,7 +602,7 @@ script:
               return;  // abort — device stays awake
             }
 
-            ESP_LOGI("PMIC", "Wake timer armed for %u seconds — issuing SYS_CMD_OFF", wake_seconds);
+            ESP_LOGI("PMIC", "Wake timer armed for %u seconds — issuing SYS_CMD_OFF", (unsigned int)wake_seconds);
             delay(120);
 
             // Full PMIC shutdown — reg 0x0C = 0xA1 (SYS_CMD_OFF)
