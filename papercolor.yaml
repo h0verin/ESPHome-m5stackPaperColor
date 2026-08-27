@@ -276,6 +276,7 @@ esp32:
   toolchain: esp-idf
   framework:
     type: arduino
+  flash_size: 16MB
 
 psram:
   mode: octal
