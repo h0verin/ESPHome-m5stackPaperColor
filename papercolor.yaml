@@ -136,12 +136,14 @@ esphome:
               - lambda: |-
                   id(low_battery_triggered) = true;
                   id(initial_display_done) = true;  // prevent on_value from queuing a second refresh during our 20s EPD wait
+                  id(epd_refresh_in_progress) = true;
                   ESP_LOGW("battery", "Low battery (%.0f mV) — showing warning screen", id(battery_mv).state);
               - component.update: m5_color_screen
               - script.stop: ota_led_flash
               - light.turn_off: leds
               # Wait for EPD panel refresh to complete before PMIC cuts power (~15-19s refresh)
               - delay: 20s
+              - lambda: 'id(epd_refresh_in_progress) = false;'
               # PMIC shutdown with 7-day timer — effectively indefinite.
               # User can wake manually via physical power button S4 to charge.
               - lambda: 'ESP_LOGI("sleep", "PMIC shutdown (low battery) — 7-day timer");'
@@ -221,6 +223,7 @@ esphome:
                         id: pmic_shutdown
                         wake_seconds: !lambda 'return id(overnight_wake_seconds);'
                   else:
+                    - lambda: 'id(epd_refresh_in_progress) = true;'
                     - component.update: m5_color_screen
                     - script.stop: ota_led_flash
                     - light.turn_off: leds
@@ -228,6 +231,7 @@ esphome:
                     # The EPD component.update is asynchronous — the panel refresh runs in the background
                     # and takes 15–19s. We must not cut the EPD power rail until it is complete.
                     - delay: 20s
+                    - lambda: 'id(epd_refresh_in_progress) = false;'
                     - lambda: 'id(last_usb_refresh_ms) = millis();'
                     - if:
                         condition:
@@ -266,6 +270,10 @@ globals:
     restore_value: false
     initial_value: '0'
   - id: waiting_for_sensors
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: epd_refresh_in_progress
     type: bool
     restore_value: false
     initial_value: 'false'
@@ -782,7 +790,7 @@ binary_sensor:
               - light.turn_off: leds
               - if:
                   condition:
-                    lambda: 'return id(initial_display_done);'
+                    lambda: 'return id(initial_display_done) && !id(epd_refresh_in_progress);'
                   then:
                     - component.update: battery_mv
                     - component.update: wifi_signal_db
@@ -798,8 +806,10 @@ binary_sensor:
                     - lambda: 'ESP_LOGI("USB", "USB disconnected — refreshing then issuing PMIC shutdown");'
                     - component.update: battery_mv
                     - component.update: wifi_signal_db
+                    - lambda: 'id(epd_refresh_in_progress) = true;'
                     - component.update: m5_color_screen
                     - delay: 20s   # wait for EPD panel refresh to complete (~15-19s)
+                    - lambda: 'id(epd_refresh_in_progress) = false;'
                     - script.execute:
                         id: pmic_shutdown
                         wake_seconds: !lambda 'return (uint32_t)(id(battery_sleep_mins).state * 60.0f);'
