@@ -825,10 +825,14 @@ binary_sensor:
       - delayed_on: 10ms
     on_press:
       then:
-        - logger.log: "Button A pressed — refreshing display"
-        - component.update: battery_mv
-        - component.update: wifi_signal_db
-        - component.update: m5_color_screen
+        - if:
+            condition:
+              lambda: 'return !id(epd_refresh_in_progress);'
+            then:
+              - logger.log: "Button A pressed — refreshing display"
+              - component.update: battery_mv
+              - component.update: wifi_signal_db
+              - component.update: m5_color_screen
 
 
   - platform: gpio
@@ -1042,6 +1046,7 @@ interval:
           condition:
             lambda: |-
               return id(usb_connected).state &&
+                     !id(epd_refresh_in_progress) &&
                      (millis() - id(last_usb_refresh_ms)) >= (uint32_t)(id(usb_refresh_mins).state * 60000.0f);
           then:
             - lambda: 'id(last_usb_refresh_ms) = millis();'
