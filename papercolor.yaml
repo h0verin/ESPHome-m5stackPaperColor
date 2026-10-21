@@ -284,6 +284,8 @@ esp32:
   toolchain: esp-idf
   framework:
     type: arduino
+    advanced:
+      flash_chip: generic
   flash_size: 16MB
 
 psram:
